@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Gemini 批量改图 - Precision Workbench</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Manrope:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#0F172A", // Slate 900 - Navy
+              "on-primary": "#f8fafc",
+              "primary-container": "#1e293b", // Slate 800
+              "accent": "#2563eb", // Blue 600 - Action Blue
+              "accent-hover": "#1d4ed8",
+              "surface": "#ffffff",
+              "surface-container": "#f8fafc",
+              "surface-container-high": "#f1f5f9",
+              "outline": "#e2e8f0",
+              "outline-variant": "#cbd5e1",
+              "on-surface": "#0f172a",
+              "on-surface-variant": "#64748b",
+              "error": "#be123c",
+              "error-container": "#fff1f2",
+            },
+            fontFamily: {
+              "headline": ["Manrope", "sans-serif"],
+              "body": ["Inter", "sans-serif"],
+              "label": ["Inter", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+      .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+      .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+      .workbench-grid { display: grid; grid-template-columns: 320px 1fr 360px; height: calc(100vh - 104px); }
+    </style>
+</head>
+<body class="text-on-surface selection:bg-blue-100 selection:text-primary overflow-hidden">
+<!-- TopAppBar Section -->
+<header class="bg-white border-b border-slate-200 flex justify-between items-center w-full px-6 z-50 fixed top-0 h-16">
+<div class="flex items-center space-x-4">
+<div class="flex flex-col">
+<span class="text-xl font-extrabold text-primary font-headline tracking-tight">Gemini 批量改图</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Precision Image Workbench</span>
+</div>
+</div>
+<div class="flex-1 max-w-md mx-8">
+<div class="relative group">
+<input class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm font-medium focus:ring-1 focus:ring-accent focus:border-accent transition-all" type="text" value="未命名批次"/>
+<span class="material-symbols-outlined absolute right-3 top-2 text-slate-400 text-sm">edit</span>
+</div>
+</div>
+<nav class="flex items-center space-x-2">
+<button class="text-slate-500 hover:text-primary px-3 py-2 text-xs font-semibold transition-colors duration-200">API Keys</button>
+<button class="text-slate-500 hover:text-primary px-3 py-2 text-xs font-semibold transition-colors duration-200">历史任务</button>
+<button class="text-slate-500 hover:text-primary px-3 py-2 text-xs font-semibold transition-colors duration-200">设置</button>
+<div class="w-px h-6 bg-slate-200 mx-2"></div>
+<button class="bg-accent hover:bg-accent-hover text-white px-5 py-2 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 transition-transform active:scale-95">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+            开始生成
+        </button>
+</nav>
+</header>
+<!-- SideNavBar -->
+<main class="mt-16 workbench-grid gap-0 overflow-hidden">
+<!-- Left Column: Image Queue -->
+<section class="bg-slate-50 flex flex-col h-full border-r border-slate-200 overflow-hidden">
+<div class="p-4 space-y-4 flex flex-col h-full">
+<!-- Upload Zone -->
+<div class="border-2 border-dashed border-slate-300 bg-white rounded-xl p-6 flex flex-col items-center justify-center text-center group hover:border-accent transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-accent mb-2 text-3xl">cloud_upload</span>
+<p class="text-sm font-bold text-slate-700">拖拽图片到这里，或点击上传</p>
+<p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tighter">Support Batch Upload</p>
+</div>
+<!-- Batch Actions -->
+<div class="flex justify-between items-center px-1">
+<div class="flex gap-1">
+<button class="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-primary px-2 py-1">全选</button>
+<button class="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-primary px-2 py-1">取消选择</button>
+</div>
+<button class="text-[10px] font-bold uppercase tracking-wider text-error hover:bg-error-container px-2 py-1 rounded transition-colors">删除所选</button>
+</div>
+<!-- Scrollable List -->
+<div class="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+<!-- Selected Item -->
+<div class="bg-white shadow-sm rounded-lg border border-accent p-3 flex gap-3 relative transition-all cursor-pointer">
+<div class="w-16 h-16 bg-slate-100 rounded border border-slate-100 overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgA_tHjm9IxHqHj3aphf-6-xLtjzS_SHtqsyB2VUJIOxhOi8eJIkFo-Lc5zknRoHZkZoSyhvAp_MzbOLdt4BWhBtNHTh_FBaSlLC6tiWniwoj1dP7J6EWaKWLIi38IHoWzg1R8tdop7hytv3Llzo6AJ7zcGOlWD453u5EayyXkCcNzdUwnz6KLkJvTEpAvLj19fZBCOMgDig-QT19kZfUocpMDhdp5-W8CgHZdY5iDGT6WDukW0OhGloXlO-boR6DjanIa87yr2X8"/>
+</div>
+<div class="flex flex-col justify-between flex-1 min-w-0">
+<span class="text-xs font-bold truncate text-slate-900">banner_v1_final.png</span>
+<div class="flex items-center gap-2">
+<span class="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full font-bold">待提交</span>
+<button class="text-accent text-[10px] font-bold flex items-center hover:underline">
+<span class="material-symbols-outlined text-xs mr-0.5">content_copy</span>复制设置
+                            </button>
+</div>
+</div>
+<div class="absolute top-2 right-2">
+<span class="material-symbols-outlined text-accent text-lg" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+</div>
+<!-- Other Items -->
+<div class="bg-white hover:bg-slate-100 rounded-lg p-3 flex gap-3 transition-all cursor-pointer border border-slate-200">
+<div class="w-16 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlKoRmZR5ZIzJBZbvC1Hoq4O2aAdWaqdSC8QKU1HZ83g7u3fTBE0pRop2jX0vkYJOMFgck_htjhdr5heDd5kGYMnpe9L_BPAqflsuK48-9K2-CXsAUQ6UC79JyTV8WErYBrSu4DB3TAAGP0LwWe9zqyRxXmgEhgXkZ5_V_Sqmx-NA9mZ1T69vFFytyNA1SCJNCyYsttIpCHvxOtqd_CXULt6M-tM-MowwlECW96g4A5hrcFPetWU18qBmvTXyaSl_gTMycK_yYQgk"/>
+</div>
+<div class="flex flex-col justify-between flex-1 min-w-0">
+<span class="text-xs font-medium truncate text-slate-600">ad_campaign_02.jpg</span>
+<div class="flex items-center gap-2">
+<span class="bg-slate-100 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-medium">未填写</span>
+</div>
+</div>
+</div>
+<div class="bg-white hover:bg-slate-100 rounded-lg p-3 flex gap-3 transition-all cursor-pointer border border-slate-200">
+<div class="w-16 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBrhSrcJHZ9_IdKkwOT12eHdS7fCJz64KW5LI952FXSUGDRf8Y_BA8Iaa-jGTRTXAM3qlCuFzigtCTmDzrLh3U1f6zT53clUBEgKKPeov2vbQmZGCUAbxt1PLgBoPVB3YVprK7YfjhV3_hYKu7aJp2W7C9wRxns5KePlC7jvmLyVI1gyTsPpuuEUj2KK45geRNmtuOBvLItJIn8ez3uLmqFJ3c3ONHAOCKZenUKA5eM4xj0ZeinGQDJcrA_m-2GwgC2TYvNNMi8Ins"/>
+</div>
+<div class="flex flex-col justify-between flex-1 min-w-0">
+<span class="text-xs font-medium truncate text-slate-600">hardware_spec_v3.png</span>
+<div class="flex items-center gap-2">
+<span class="bg-blue-50 text-accent text-[10px] px-2 py-0.5 rounded-full font-bold">成功</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Middle Column: Current Image Editor -->
+<section class="bg-white flex flex-col h-full overflow-hidden p-6 space-y-6">
+<!-- Canvas Area -->
+<div class="flex-shrink-0">
+<div class="flex justify-between items-end mb-3">
+<h2 class="text-lg font-extrabold font-headline tracking-tight text-primary">当前图片：banner_v1_final.png</h2>
+<span class="text-[10px] font-mono font-bold text-slate-400">1920 x 1080 PX</span>
+</div>
+<div class="bg-slate-100 border border-slate-200 rounded-xl aspect-video w-full flex items-center justify-center overflow-hidden shadow-inner relative">
+<img class="w-full h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvN7q0YpVcWqUjrFMMBcjpvsjjuqKRBJI5EgVuM4yAROiVOw3DDcmlwKtMHaWTjtZzu2XWPtb12iBeKgcY36HsHMLaI0_ZhYFiygpZSxmjyygCfdN2OfXrFeoovrMm78V5Js_ZqtwwY5GRi40pCTgVXle7oCuYcGdGzS-EHh-tFJ4RmV6wefN0C-4u0K_vIbWpYuW6j8BzooKc06Ccus2eIuogVifR_dcYjWTfO8FD6NYuBM4iTFv-2eRsALdATmwPbRCU3T7OGp4"/>
+</div>
+</div>
+<!-- Editor Controls -->
+<div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8">
+<div>
+<div class="flex items-center gap-2 mb-4">
+<span class="bg-accent w-1 h-4 rounded-full"></span>
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 font-label">固定修改项 / Field Map</h3>
+</div>
+<div class="space-y-3">
+<!-- Record Row 1 -->
+<div class="bg-slate-50 rounded-lg p-3 border border-slate-200">
+<div class="flex items-end gap-4">
+<div class="flex-1 grid grid-cols-2 gap-3">
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">原文字 / Original</label>
+<input class="w-full bg-white border border-slate-200 rounded-md text-xs py-2 px-3 focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-all" type="text" value="Old Text Content"/>
+</div>
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">新文字 / New</label>
+<input class="w-full bg-white border border-slate-200 rounded-md text-xs py-2 px-3 focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-all" type="text" value="New Text Content"/>
+</div>
+</div>
+<div class="flex items-center gap-2 pb-1">
+<button class="text-[10px] font-bold text-accent hover:underline px-2 py-1">清空</button>
+<button class="material-symbols-outlined text-slate-300 hover:text-error text-lg transition-colors">delete</button>
+</div>
+</div>
+</div>
+<!-- Record Row 2 -->
+<div class="bg-slate-50 rounded-lg p-3 border border-slate-200">
+<div class="flex items-end gap-4">
+<div class="flex-1 grid grid-cols-2 gap-3">
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">原文字 / Original</label>
+<input class="w-full bg-white border border-slate-200 rounded-md text-xs py-2 px-3 focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-all" placeholder="例如：111" type="text"/>
+</div>
+<div>
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">新文字 / New</label>
+<input class="w-full bg-white border border-slate-200 rounded-md text-xs py-2 px-3 focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-all" placeholder="例如：222" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-2 pb-1">
+<button class="text-[10px] font-bold text-accent hover:underline px-2 py-1">清空</button>
+<button class="material-symbols-outlined text-slate-300 hover:text-error text-lg transition-colors">delete</button>
+</div>
+</div>
+</div>
+<!-- Add Button -->
+<button class="w-full border-2 border-dashed border-slate-200 rounded-lg py-3 flex items-center justify-center gap-2 text-xs font-bold text-slate-400 hover:border-accent hover:text-accent transition-all group">
+<span class="material-symbols-outlined text-lg group-hover:scale-110 transition-transform">add_circle</span>
+                        添加修改项
+                    </button>
+</div>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined text-slate-400 text-lg" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 font-label">额外修改说明 / Prompt</h3>
+</div>
+<textarea class="w-full bg-slate-50 border border-slate-200 rounded-xl text-xs p-4 min-h-[100px] focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-all resize-none" placeholder="例如：把右上角日期改成 2026-03-20，其他内容不要动"></textarea>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="pt-4 border-t border-slate-100 flex gap-3">
+<button class="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-lg text-xs font-bold transition-all hover:bg-slate-200 flex-1">应用到当前图片</button>
+<button class="bg-blue-50 text-accent px-4 py-2.5 rounded-lg text-xs font-bold transition-all hover:bg-blue-100 flex-1">应用到全部图片</button>
+<button class="text-slate-400 px-4 py-2.5 text-xs font-bold hover:text-error transition-colors">清空当前</button>
+</div>
+</section>
+<!-- Right Column: Tasks & Results -->
+<section class="bg-slate-50 flex flex-col h-full overflow-hidden p-4 space-y-4">
+<!-- Stats Card -->
+<div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4">
+<div class="grid grid-cols-3 gap-2">
+<div class="bg-slate-50 p-2 rounded-lg text-center border border-slate-100">
+<div class="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Total</div>
+<div class="text-lg font-black text-primary">24</div>
+</div>
+<div class="bg-blue-50 p-2 rounded-lg text-center border border-blue-100">
+<div class="text-[10px] text-accent font-bold uppercase tracking-tighter">Ready</div>
+<div class="text-lg font-black text-accent">10</div>
+</div>
+<div class="bg-slate-100 p-2 rounded-lg text-center border border-slate-200">
+<div class="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">Done</div>
+<div class="text-lg font-black text-slate-700">12</div>
+</div>
+</div>
+<div class="space-y-2">
+<button class="w-full bg-primary text-white py-3 rounded-lg font-bold text-sm shadow-sm hover:bg-primary-container transition-all active:scale-95 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_circle</span>
+                    开始生成任务
+                </button>
+<div class="grid grid-cols-2 gap-2">
+<button class="bg-slate-50 text-slate-500 border border-slate-200 py-2 rounded-md font-bold text-[10px] hover:bg-slate-100 uppercase">暂停任务</button>
+<button class="bg-slate-50 text-slate-500 border border-slate-200 py-2 rounded-md font-bold text-[10px] hover:bg-slate-100 uppercase">重跑失败项</button>
+</div>
+</div>
+</div>
+<!-- Progress Card -->
+<div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">批次进度 / Progress</span>
+<span class="text-[10px] font-mono font-bold text-accent">50%</span>
+</div>
+<div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-accent h-full rounded-full" style="width: 50%"></div>
+</div>
+<div class="mt-2 flex justify-between text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+<span>Active: 2</span>
+<span>Remaining: 10</span>
+</div>
+</div>
+<!-- Results Feed -->
+<div class="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1">
+<h3 class="text-[10px] font-black uppercase tracking-widest text-slate-400 px-1">任务流水 / Activity Feed</h3>
+<!-- Success Result -->
+<div class="bg-white rounded-xl p-3 shadow-sm border border-slate-200">
+<div class="flex justify-between items-start mb-2">
+<span class="text-xs font-bold truncate pr-4 text-primary">hardware_spec_v3.png</span>
+<span class="bg-blue-50 text-accent text-[10px] px-2 py-0.5 rounded-md font-bold">SUCCESS</span>
+</div>
+<div class="grid grid-cols-2 gap-2 mb-3">
+<div class="aspect-video bg-slate-100 rounded overflow-hidden relative border border-slate-200">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdJQNSgS0vj0qLeOnXyk02Wei_OnX2msrnQkIw13vwn2Q5d0ZkdDxhXA15oRw29DqXX4jfHEKtfPxuBPB35_58nfsuzJy7DOpHMYNtK_IWKjQfCsvD86ERbLwlJWA57jESenrK5E6Z2yb1foQQZHHfvyyA4GpobTIzgBOsnUH1wErBYTN6J8dFI8WMgaWc2WpmsWUi2FmK6P51jLm9vPYmVH2_M6fKGQ2_i2TBqY3W45G6nmj5bcn4gvGGB2OE73KCTI22dul8iow"/>
+<span class="absolute bottom-1 left-1 text-[8px] bg-slate-900/70 text-white px-1.5 py-0.5 rounded font-bold uppercase">Orig</span>
+</div>
+<div class="aspect-video bg-slate-100 rounded overflow-hidden relative border border-slate-200">
+<img class="w-full h-full object-cover brightness-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBes5v8A5grEBP2ctn6EhW5S85AwIEzIhsVXxFeMM1wNqUX2mINBos4t9k06RKfdS-eoT5m8Larxp9XMDfQc7plTcCTu6Tp2dRaUS_1d5QwY9bXM1TGUb_RkVY7G25Zwd7nCiIDxWewLeSsJaQ9_OH5jWV_ngzIErBO-ZjN2K3Y-RVDmlr17aTPDdYFOODuhOJZIMiRY5MgmaEH08uWD9t8fMN98rM_lIuRIokJ4zUumIMTPFyp2FQULSqCpPLKhdHH85F0DlFPfXc"/>
+<span class="absolute bottom-1 left-1 text-[8px] bg-accent text-white px-1.5 py-0.5 rounded font-bold uppercase">Result</span>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="flex-1 bg-primary text-white text-[10px] font-bold py-1.5 rounded-md hover:bg-primary-container transition-colors">下载成果</button>
+<button class="flex-1 bg-slate-50 text-slate-500 text-[10px] font-bold py-1.5 rounded-md border border-slate-200 hover:bg-slate-100 transition-colors">查看大图</button>
+</div>
+</div>
+<!-- Failure Result -->
+<div class="bg-white rounded-xl p-3 shadow-sm border border-rose-100">
+<div class="flex justify-between items-start mb-2">
+<span class="text-xs font-bold truncate pr-4 text-primary">q4_report_cover.png</span>
+<span class="bg-rose-50 text-error text-[10px] px-2 py-0.5 rounded-md font-bold uppercase">Failed</span>
+</div>
+<p class="text-[10px] text-slate-500 mb-3 leading-tight bg-rose-50/50 p-2 rounded">错误：未能在原图中识别到文字 "Target 2023"，请检查输入文字是否准确。</p>
+<button class="w-full bg-slate-50 text-slate-500 text-[10px] font-bold py-1.5 rounded-md border border-slate-200 hover:bg-rose-50 hover:text-error hover:border-rose-200 transition-all uppercase">重新生成</button>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-primary fixed bottom-0 left-0 w-full flex justify-between items-center px-6 h-10 z-40 border-t border-slate-800">
+<div class="flex items-center space-x-4">
+<span class="text-[10px] font-mono text-slate-400 flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+            ACTIVE BATCH: 未命名批次
+        </span>
+</div>
+<div class="flex items-center space-x-8">
+<div class="flex gap-4">
+<span class="text-[10px] font-mono text-blue-400 font-bold uppercase">Success 12</span>
+<span class="text-[10px] font-mono text-rose-400 font-bold uppercase">Failed 2</span>
+<span class="text-[10px] font-mono text-slate-500 font-bold uppercase">Pending 10</span>
+</div>
+<div class="flex items-center gap-4">
+<a class="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors uppercase" href="#">Status</a>
+<a class="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors uppercase" href="#">Docs</a>
+<a class="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors uppercase" href="#">Feedback</a>
+</div>
+</div>
+</footer>
+</body></html>
