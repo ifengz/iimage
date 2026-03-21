@@ -8,6 +8,9 @@ dist/
 .codex/
 *.tsbuildinfo
 .DS_Store
+.venv-ocr/
+ocr_server/__pycache__/
+ocr_server/.paddlex-cache/
 
 # 本地 mock 数据（不提交）
 src/data/*.local.ts

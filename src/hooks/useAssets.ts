@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
+  createDefaultRules,
+  createEmptyRule,
   type AssetItem,
   type AssetStatus,
+  MAX_ASSET_SLOTS,
+  type OcrBlock,
   createDevelopmentAssetFromFile,
   getRuntimeSeedAssets,
 } from "../data/mock";
@@ -25,13 +29,6 @@ const statusClasses: Record<AssetStatus, string> = {
   成功: "badge badge-success",
   失败: "badge badge-failed",
 };
-
-const createEmptyRule = (index: number) => ({
-  id: `rule-${Date.now()}-${index}`,
-  label: `Field ${index}`,
-  sourceText: "",
-  targetText: "",
-});
 
 const hasDraftInstructions = (asset: Pick<AssetItem, "notes" | "rules">) =>
   Boolean(
@@ -145,12 +142,115 @@ const buildInitialPrompts = (assets: AssetItem[]) =>
       .map((asset) => [asset.id, buildPrompt(asset)]),
   );
 
+const readImageDimensions = async (previewUrl: string) =>
+  new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+    };
+    image.onerror = () => {
+      reject(new Error("无法读取图片尺寸。"));
+    };
+    image.src = previewUrl;
+  });
+
+const resolveMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message.trim() ? error.message : fallback;
+
+const createUploadAsset = async (file: File) => {
+  const previewUrl = URL.createObjectURL(file);
+
+  try {
+    const dimensions = await readImageDimensions(previewUrl);
+    return createDevelopmentAssetFromFile(file, previewUrl, dimensions, previewUrl);
+  } catch (error) {
+    URL.revokeObjectURL(previewUrl);
+    throw error;
+  }
+};
+
+const buildUploadFailureMessage = (
+  failedFiles: Array<{ fileName: string; message: string }>,
+  successCount: number,
+) => {
+  if (failedFiles.length === 0) {
+    return null;
+  }
+
+  if (failedFiles.length === 1 && successCount === 0) {
+    return failedFiles[0].message;
+  }
+
+  const detail = failedFiles
+    .map(({ fileName, message }) => `${fileName}：${message}`)
+    .join("；");
+
+  if (successCount > 0) {
+    return `已导入 ${successCount} 张，${failedFiles.length} 张失败：${detail}`;
+  }
+
+  return `${failedFiles.length} 张图片上传失败：${detail}`;
+};
+
+const buildUploadCapacityMessage = (ignoredCount: number) => {
+  if (ignoredCount <= 0) return null;
+  return `B区最多只能放 ${MAX_ASSET_SLOTS} 张图片，已忽略 ${ignoredCount} 张。`;
+};
+
+const joinMessages = (...messages: Array<string | null>) => {
+  const visibleMessages = messages
+    .map((message) => message?.trim())
+    .filter((message): message is string => Boolean(message));
+
+  if (visibleMessages.length === 0) {
+    return null;
+  }
+
+  return visibleMessages.join(" ");
+};
+
+const requestLocalOcr = async (file: File): Promise<{ blocks: OcrBlock[] }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/ocr", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = `OCR request failed (${response.status}).`;
+
+    try {
+      const payload = await response.json();
+      if (typeof payload?.detail === "string" && payload.detail.trim()) {
+        message = payload.detail;
+      }
+    } catch {
+      // Keep the HTTP fallback message.
+    }
+
+    throw new Error(message);
+  }
+
+  const payload = await response.json();
+  return {
+    blocks: Array.isArray(payload?.blocks) ? payload.blocks : [],
+  };
+};
+
 export const useAssets = () => {
   const initialAssets = getRuntimeSeedAssets({ isDev: import.meta.env.DEV });
   const [batchName, setBatchName] = useState("Untitled Batch");
   const [assets, setAssets] = useState<AssetItem[]>(() => initialAssets);
   const [selectedId, setSelectedId] = useState<string>(initialAssets[0]?.id ?? "");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [ocrTargetRuleId, setOcrTargetRuleId] = useState<string>(
+    initialAssets[0]?.rules[0]?.id ?? "",
+  );
   const [previewMode, setPreviewMode] = useState<"before" | "after">("before");
   const [savedPrompts, setSavedPrompts] = useState<Record<string, string>>(
     () => buildInitialPrompts(initialAssets),
@@ -186,6 +286,7 @@ export const useAssets = () => {
   };
 
   const assetsRef = useRef<AssetItem[]>(assets);
+  const ocrTargetRuleIdRef = useRef(ocrTargetRuleId);
   const savedPromptsRef = useRef<Record<string, string>>(savedPrompts);
   const batchRunIdRef = useRef(0);
   const batchAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -336,6 +437,10 @@ export const useAssets = () => {
   }, [assets]);
 
   useEffect(() => {
+    ocrTargetRuleIdRef.current = ocrTargetRuleId;
+  }, [ocrTargetRuleId]);
+
+  useEffect(() => {
     savedPromptsRef.current = savedPrompts;
   }, [savedPrompts]);
 
@@ -367,10 +472,26 @@ export const useAssets = () => {
     setPromptDraft(currentPrompt ?? "");
   }, [currentAsset, currentPrompt]);
 
+  useEffect(() => {
+    const fallbackRuleId = currentAsset?.rules[0]?.id ?? "";
+    const targetStillExists = currentAsset?.rules.some(
+      (rule) => rule.id === ocrTargetRuleId,
+    );
+
+    if (!targetStillExists && ocrTargetRuleId !== fallbackRuleId) {
+      ocrTargetRuleIdRef.current = fallbackRuleId;
+      setOcrTargetRuleId(fallbackRuleId);
+    }
+  }, [currentAsset, ocrTargetRuleId]);
+
   const selectAsset = (id: string) => {
     setSelectedId(id);
     setPreviewMode("before");
     setBatchMessage(null);
+    const targetAsset = assetsRef.current.find((asset) => asset.id === id);
+    const nextRuleId = targetAsset?.rules[0]?.id ?? "";
+    ocrTargetRuleIdRef.current = nextRuleId;
+    setOcrTargetRuleId(nextRuleId);
   };
 
   const toggleSelection = (id: string) => {
@@ -398,6 +519,66 @@ export const useAssets = () => {
         };
       }),
     );
+    setSavedPrompts((prev) => {
+      if (!(selectedId in prev)) return prev;
+      const next = { ...prev };
+      delete next[selectedId];
+      return next;
+    });
+  };
+
+  const setOcrTargetRule = (ruleId: string) => {
+    ocrTargetRuleIdRef.current = ruleId;
+    setOcrTargetRuleId(ruleId);
+  };
+
+  const applyOcrTextToTarget = (text: string) => {
+    const nextText = text.trim();
+    if (!selectedId || !nextText) return;
+    const activeAsset = assetsRef.current.find((asset) => asset.id === selectedId);
+    if (!activeAsset) return;
+
+    const fallbackRuleId = activeAsset.rules[0]?.id ?? "";
+    const activeTargetRuleId = activeAsset.rules.some(
+      (rule) => rule.id === ocrTargetRuleIdRef.current,
+    )
+      ? ocrTargetRuleIdRef.current
+      : fallbackRuleId;
+    const activeTargetIndex = activeAsset.rules.findIndex(
+      (rule) => rule.id === activeTargetRuleId,
+    );
+    const resolvedTargetIndex = activeTargetIndex >= 0 ? activeTargetIndex : 0;
+    const targetRuleId = activeAsset.rules[resolvedTargetIndex]?.id ?? fallbackRuleId;
+    const nextTargetRuleId =
+      activeAsset.rules[
+        Math.min(resolvedTargetIndex + 1, Math.max(0, activeAsset.rules.length - 1))
+      ]?.id ?? targetRuleId;
+
+    setAssets((prev) =>
+      prev.map((asset) => {
+        if (asset.id !== selectedId) return asset;
+
+        const nextRules = asset.rules.map((rule) =>
+          rule.id === targetRuleId ? { ...rule, sourceText: nextText } : rule,
+        );
+
+        const next = {
+          ...asset,
+          rules: nextRules,
+          resultUrl: undefined,
+          errorMessage: undefined,
+        };
+
+        return {
+          ...next,
+          status: draftStatus(next),
+        };
+      }),
+    );
+
+    ocrTargetRuleIdRef.current = nextTargetRuleId;
+    setOcrTargetRuleId(nextTargetRuleId);
+
     setSavedPrompts((prev) => {
       if (!(selectedId in prev)) return prev;
       const next = { ...prev };
@@ -481,6 +662,8 @@ export const useAssets = () => {
   };
 
   const clearCurrent = () => {
+    const nextRules = createDefaultRules();
+
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
@@ -490,10 +673,13 @@ export const useAssets = () => {
           notes: "",
           errorMessage: undefined,
           resultUrl: undefined,
-          rules: asset.rules.map((rule) => ({ ...rule, targetText: "", sourceText: "" })),
+          rules: nextRules,
         };
       }),
     );
+    const nextRuleId = nextRules[0]?.id ?? "";
+    ocrTargetRuleIdRef.current = nextRuleId;
+    setOcrTargetRuleId(nextRuleId);
     setSavedPrompts((prev) => {
       const next = { ...prev };
       delete next[selectedId];
@@ -537,6 +723,80 @@ export const useAssets = () => {
     );
   };
 
+  const runOcrForAsset = async (assetId: string, file: File) => {
+    setAssets((prev) =>
+      prev.map((asset) =>
+        asset.id !== assetId
+          ? asset
+          : {
+              ...asset,
+              ocrStatus: "loading",
+              ocrVisible: false,
+              ocrBlocks: [],
+              ocrErrorMessage: undefined,
+            },
+      ),
+    );
+
+    try {
+      const payload = await requestLocalOcr(file);
+
+      setAssets((prev) =>
+        prev.map((asset) =>
+          asset.id !== assetId
+            ? asset
+            : {
+                ...asset,
+                ocrStatus: "ready",
+                ocrVisible: false,
+                ocrBlocks: payload.blocks,
+                ocrErrorMessage: undefined,
+              },
+        ),
+      );
+    } catch (error: any) {
+      setAssets((prev) =>
+        prev.map((asset) =>
+          asset.id !== assetId
+            ? asset
+            : {
+                ...asset,
+                ocrStatus: "failed",
+                ocrVisible: false,
+                ocrBlocks: [],
+                ocrErrorMessage: error?.message || "OCR request failed.",
+              },
+        ),
+      );
+    }
+  };
+
+  const runCurrentOcr = async () => {
+    const asset = assetsRef.current.find((item) => item.id === selectedId);
+    if (!asset?.uploadFile) {
+      setBatchMessage("当前图片没有可识别的原始文件。");
+      return;
+    }
+
+    setBatchMessage(null);
+    await runOcrForAsset(asset.id, asset.uploadFile);
+  };
+
+  const toggleCurrentOcrVisibility = () => {
+    if (!selectedId) return;
+
+    setAssets((prev) =>
+      prev.map((asset) =>
+        asset.id !== selectedId || asset.ocrStatus !== "ready" || asset.ocrBlocks.length === 0
+          ? asset
+          : {
+              ...asset,
+              ocrVisible: !asset.ocrVisible,
+            },
+      ),
+    );
+  };
+
   const startBatch = async () => {
     if (currentAsset && isCurrentPromptDirty) {
       setBatchMessage("C区内容改了但还没保存，请先点保存。");
@@ -572,10 +832,11 @@ export const useAssets = () => {
       readyItems.length,
     );
     beginBatchTracking(readyItems.map((asset) => asset.id));
+    const readyItemIds = new Set(readyItems.map((asset) => asset.id));
 
     setAssets((prev) =>
       prev.map((asset) =>
-        deriveStatus(asset, savedPromptsRef.current[asset.id]) !== "就绪"
+        !readyItemIds.has(asset.id)
           ? asset
           : { ...asset, status: "处理中", errorMessage: undefined },
       ),
@@ -703,25 +964,70 @@ export const useAssets = () => {
     );
   };
 
-  const handleUpload = (files: FileList | null) => {
+  const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const newAssets = Array.from(files).map((file) => {
-      const previewUrl = URL.createObjectURL(file);
-      return createDevelopmentAssetFromFile(file.name, previewUrl, previewUrl);
-    });
-    setAssets((prev) => [...prev, ...newAssets]);
+
+    const availableSlots = Math.max(0, MAX_ASSET_SLOTS - assetsRef.current.length);
+
+    if (availableSlots === 0) {
+      setBatchMessage(`B区最多只能放 ${MAX_ASSET_SLOTS} 张图片。`);
+      return;
+    }
+
+    const acceptedFiles = Array.from(files).slice(0, availableSlots);
+    const ignoredCount = Math.max(0, files.length - acceptedFiles.length);
+
+    const uploadResults = await Promise.all(
+      acceptedFiles.map(async (file) => {
+        try {
+          const asset = await createUploadAsset(file);
+          return { ok: true as const, asset };
+        } catch (error) {
+          return {
+            ok: false as const,
+            fileName: file.name,
+            message: resolveMessage(error, "上传图片失败。"),
+          };
+        }
+      }),
+    );
+
+    const newAssets = uploadResults.flatMap((result) =>
+      result.ok ? [result.asset] : [],
+    );
+    const failedFiles = uploadResults.flatMap((result) =>
+      result.ok ? [] : [{ fileName: result.fileName, message: result.message }],
+    );
+
     if (newAssets[0]) {
+      setAssets((prev) => [...prev, ...newAssets]);
       setSelectedId(newAssets[0].id);
       setPreviewMode("before");
+      const nextRuleId = newAssets[0].rules[0]?.id ?? "";
+      ocrTargetRuleIdRef.current = nextRuleId;
+      setOcrTargetRuleId(nextRuleId);
     }
-    setBatchMessage(null);
+
+    setBatchMessage(
+      joinMessages(
+        buildUploadFailureMessage(failedFiles, newAssets.length),
+        buildUploadCapacityMessage(ignoredCount),
+      ),
+    );
   };
 
-  const handleSlotUpload = (files: FileList | null, index: number) => {
+  const handleSlotUpload = async (files: FileList | null, index: number) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    const previewUrl = URL.createObjectURL(file);
-    const newAsset = createDevelopmentAssetFromFile(file.name, previewUrl, previewUrl);
+    let newAsset: AssetItem;
+
+    try {
+      newAsset = await createUploadAsset(file);
+    } catch (error) {
+      setBatchMessage(resolveMessage(error, "上传图片失败。"));
+      return;
+    }
+
     const replacedAsset = assetsRef.current[index];
 
     if (replacedAsset) {
@@ -749,6 +1055,11 @@ export const useAssets = () => {
       return next;
     });
     setSelectedId(newAsset.id);
+    setPreviewMode("before");
+    const nextRuleId = newAsset.rules[0]?.id ?? "";
+    ocrTargetRuleIdRef.current = nextRuleId;
+    setOcrTargetRuleId(nextRuleId);
+    setBatchMessage(null);
   };
 
   const deleteAsset = (id: string) => {
@@ -776,6 +1087,8 @@ export const useAssets = () => {
     setAssets([]);
     setSelectedId("");
     setSelectedIds([]);
+    ocrTargetRuleIdRef.current = "";
+    setOcrTargetRuleId("");
     setSavedPrompts({});
     resetBatchTracking();
     setBatchMessage(null);
@@ -871,9 +1184,14 @@ export const useAssets = () => {
     promptDraft,
     setPromptDraft,
     batchMessage,
+    ocrTargetRuleId,
+    runCurrentOcr,
+    toggleCurrentOcrVisibility,
     selectAsset,
     toggleSelection,
     updateRule,
+    setOcrTargetRule,
+    applyOcrTextToTarget,
     updateNotes,
     insertRuleAfter,
     removeRule,

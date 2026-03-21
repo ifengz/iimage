@@ -6,6 +6,11 @@ interface PromptPanelProps {
 }
 
 import { useState } from "preact/hooks";
+import {
+  compactGhostActionButtonStyle,
+  compactPrimaryActionButtonStyle,
+  sharedPanelBodyStyle,
+} from "./panelActionStyles";
 
 export const PromptPanel = ({
   promptDraft,
@@ -31,7 +36,7 @@ export const PromptPanel = ({
           <span class="panel-title">C区 · Gemini Prompt</span>
         </div>
       </div>
-      <div class="panel-body" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
+      <div class="panel-body" style={sharedPanelBodyStyle}>
         <textarea
           value={promptDraft}
           onInput={(e) => setPromptDraft((e.target as HTMLTextAreaElement).value)}
@@ -55,39 +60,26 @@ export const PromptPanel = ({
         />
 
         {/* Action Buttons at Bottom (Symmetric with B-zone) */}
-        <div style={{ 
-          display: 'flex', 
-          gap: 'var(--spacing-sm)', 
-          justifyContent: 'flex-end',
-          padding: 'var(--spacing-sm)',
-          borderTop: '1px solid var(--border-color)'
-        }}>
-          <button class="button button-ghost" style={{ height: '28px', fontSize: '0.75rem' }} onClick={restoreGeneratedPrompt}>
-            重置
-          </button>
-          <button 
-            class={`button ${saveStatus === 'saved' ? 'button-success' : 'button-primary'}`} 
-            style={{ 
-              height: '28px', 
-              minWidth: '60px',
-              transition: 'all 0.3s ease',
-              fontSize: '0.75rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '4px'
-            }} 
-            onClick={handleSave}
-            disabled={saveStatus !== 'idle'}
-          >
-            {saveStatus === 'idle' && "保存"}
-            {saveStatus === 'saving' && "..."}
-            {saveStatus === 'saved' && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            )}
-          </button>
+        <div class="panel-actions-bar panel-actions-bar-end">
+          <div class="panel-actions-group">
+            <button class="button button-ghost" style={compactGhostActionButtonStyle} onClick={restoreGeneratedPrompt}>
+              重置
+            </button>
+            <button
+              class={`button ${saveStatus === 'saved' ? 'button-success' : 'button-primary'}`}
+              style={compactPrimaryActionButtonStyle}
+              onClick={handleSave}
+              disabled={saveStatus !== 'idle'}
+            >
+              {saveStatus === 'idle' && "保存"}
+              {saveStatus === 'saving' && "..."}
+              {saveStatus === 'saved' && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

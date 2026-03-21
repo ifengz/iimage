@@ -16,8 +16,13 @@ export default function App() {
     stats,
     promptDraft,
     setPromptDraft,
+    ocrTargetRuleId,
     selectAsset,
     updateRule,
+    setOcrTargetRule,
+    applyOcrTextToTarget,
+    runCurrentOcr,
+    toggleCurrentOcrVisibility,
     updateNotes,
     insertRuleAfter,
     removeRule,
@@ -48,6 +53,9 @@ export default function App() {
           currentAsset={currentAsset} 
           previewMode={previewMode}
           onDownloadResult={downloadCurrentResult}
+          onRunOcr={runCurrentOcr}
+          onToggleOcrVisibility={toggleCurrentOcrVisibility}
+          onSelectOcrText={applyOcrTextToTarget}
         />
         <EditPanel
           assets={assets}
@@ -57,6 +65,8 @@ export default function App() {
           selectAsset={selectAsset}
           previewMode={previewMode}
           setPreviewMode={setPreviewMode}
+          ocrTargetRuleId={ocrTargetRuleId}
+          setOcrTargetRule={setOcrTargetRule}
           updateRule={updateRule}
           updateNotes={updateNotes}
           insertRuleAfter={insertRuleAfter}

@@ -1,5 +1,5 @@
 interface ActionToolbarProps {
-  handleUpload: (files: FileList | null) => void;
+  handleUpload: (files: FileList | null) => Promise<void> | void;
   startBatch: () => void;
   pauseBatch: () => void;
   downloadSelected: () => void;
@@ -97,7 +97,12 @@ export const ActionToolbar = ({
           type="file" 
           multiple 
           accept="image/*" 
-          onChange={(e) => handleUpload((e.target as HTMLInputElement).files)} 
+          onChange={(e) => {
+            const input = e.target as HTMLInputElement;
+            void Promise.resolve(handleUpload(input.files)).finally(() => {
+              input.value = "";
+            });
+          }}
           style={{ display: 'none' }} 
         />
       </label>

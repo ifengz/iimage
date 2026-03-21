@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "bash scripts/dev-all.sh",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "ocr:server": ".venv-ocr/bin/python -m uvicorn ocr_server.app:app --host 127.0.0.1 --port 8787",
+    "ocr:check": "python3 -m py_compile ocr_server/app.py"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

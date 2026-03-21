@@ -32,6 +32,8 @@ vi.mock("@google/generative-ai", () => ({
 
 import { type AssetItem, getRuntimeSeedAssets } from "./data/mock";
 import App from "./App";
+import { EditPanel } from "./components/EditPanel";
+import { PromptPanel } from "./components/PromptPanel";
 import { useAssets } from "./hooks/useAssets";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { StatusFooter } from "./components/StatusFooter";
@@ -60,6 +62,23 @@ const deferred = <T,>(): Deferred<T> => {
 
 const createFileList = (files: File[]) => files as unknown as FileList;
 
+const makeFileInputValueMutable = (
+  input: HTMLInputElement,
+  initialValue = "",
+) => {
+  let currentValue = initialValue;
+
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get: () => currentValue,
+    set: (nextValue: string) => {
+      currentValue = nextValue;
+    },
+  });
+
+  input.value = initialValue;
+};
+
 const createAssetFixture = (overrides: Partial<AssetItem> = {}): AssetItem => ({
   id: overrides.id ?? "fixture-asset",
   name: overrides.name ?? "fixture.png",
@@ -78,6 +97,10 @@ const createAssetFixture = (overrides: Partial<AssetItem> = {}): AssetItem => ({
       targetText: "",
     },
   ],
+  ocrStatus: (overrides as any).ocrStatus ?? "idle",
+  ocrVisible: (overrides as any).ocrVisible ?? false,
+  ocrBlocks: (overrides as any).ocrBlocks ?? [],
+  ocrErrorMessage: (overrides as any).ocrErrorMessage,
   errorMessage: overrides.errorMessage,
 });
 
@@ -109,12 +132,250 @@ describe("useAssets batch behavior", () => {
       value: vi.fn(),
     });
 
+    class MockImage {
+      width = 1200;
+      height = 800;
+      naturalWidth = 1200;
+      naturalHeight = 800;
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => {
+          this.onload?.();
+        });
+      }
+    }
+
+    vi.stubGlobal("Image", MockImage as unknown as typeof Image);
+
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        blob: async () => new Blob(["uploaded-image"], { type: "image/jpeg" }),
-      })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+
+        if (url.includes("/api/ocr")) {
+          return {
+            ok: true,
+            json: async () => ({
+              blocks: [
+                {
+                  id: "ocr-block-1",
+                  text: "Summer Sale",
+                  score: 0.99,
+                  box: { x: 120, y: 48, width: 240, height: 60 },
+                },
+              ],
+            }),
+          };
+        }
+
+        return {
+          blob: async () => new Blob(["uploaded-image"], { type: "image/jpeg" }),
+        };
+      }),
     );
+  });
+
+  it("waits for the manual OCR action before requesting local OCR and keeps OCR hidden by default", async () => {
+    render(<HookHarness />);
+
+    const upload = new File(["binary"], "poster.jpg", { type: "image/jpeg" });
+
+    await act(async () => {
+      await latestApi.handleUpload(createFileList([upload]));
+    });
+
+    expect(fetch).not.toHaveBeenCalledWith(
+      "/api/ocr",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+
+    expect(typeof (latestApi as any).runCurrentOcr).toBe("function");
+
+    await act(async () => {
+      await (latestApi as any).runCurrentOcr();
+    });
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/ocr",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.any(FormData),
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect((latestApi.currentAsset as any)?.ocrStatus).toBe("ready");
+      expect((latestApi.currentAsset as any)?.ocrBlocks?.[0]?.text).toBe("Summer Sale");
+      expect((latestApi.currentAsset as any)?.ocrVisible).toBe(false);
+    });
+  });
+
+  it("creates 10 empty replacement rules for a newly uploaded image by default", async () => {
+    render(<HookHarness />);
+
+    const upload = new File(["binary"], "poster.jpg", { type: "image/jpeg" });
+
+    await act(async () => {
+      await latestApi.handleUpload(createFileList([upload]));
+    });
+
+    await waitFor(() => {
+      expect(latestApi.currentAsset?.rules).toHaveLength(10);
+    });
+
+    expect(
+      latestApi.currentAsset?.rules.every(
+        (rule) => rule.sourceText === "" && rule.targetText === "",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps top batch uploads within the visible 6 slots and reports overflow", async () => {
+    render(<HookHarness />);
+
+    const uploads = Array.from({ length: 7 }, (_, index) =>
+      new File(["binary"], `poster-${index + 1}.jpg`, { type: "image/jpeg" }),
+    );
+
+    await act(async () => {
+      await latestApi.handleUpload(createFileList(uploads));
+    });
+
+    expect(latestApi.assets).toHaveLength(6);
+    expect(latestApi.assets.map((asset) => asset.name)).toEqual(
+      uploads.slice(0, 6).map((file) => file.name),
+    );
+    expect(latestApi.batchMessage).toContain("B区最多只能放 6 张图片");
+    expect(latestApi.batchMessage).toContain("已忽略 1 张");
+  });
+
+  it("restores 10 empty replacement rules when clearing the current image", async () => {
+    render(<HookHarness />);
+
+    const asset = createAssetFixture({
+      id: "reset-rules-asset",
+      rules: [
+        {
+          id: "reset-rule-1",
+          label: "字段1",
+          sourceText: "Old 1",
+          targetText: "New 1",
+        },
+        {
+          id: "reset-rule-2",
+          label: "字段2",
+          sourceText: "Old 2",
+          targetText: "New 2",
+        },
+      ],
+    });
+
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+    });
+
+    await act(async () => {
+      latestApi.clearCurrent();
+    });
+
+    await waitFor(() => {
+      expect(latestApi.currentAsset?.rules).toHaveLength(10);
+    });
+
+    expect(
+      latestApi.currentAsset?.rules.every(
+        (rule) => rule.sourceText === "" && rule.targetText === "",
+      ),
+    ).toBe(true);
+  });
+
+  it("writes a clicked OCR text block into the active before field", async () => {
+    render(<HookHarness />);
+
+    const asset = createAssetFixture({
+      id: "ocr-fill-asset",
+      rules: [
+        {
+          id: "ocr-fill-rule",
+          label: "字段1",
+          sourceText: "",
+          targetText: "",
+        },
+      ],
+    });
+
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+    });
+
+    expect(typeof (latestApi as any).setOcrTargetRule).toBe("function");
+
+    await act(async () => {
+      (latestApi as any).setOcrTargetRule("ocr-fill-rule");
+      (latestApi as any).applyOcrTextToTarget("Summer Sale");
+    });
+
+    expect(latestApi.assets[0]?.rules[0]?.sourceText).toBe("Summer Sale");
+  });
+
+  it("moves the OCR receive target down to the next before field after each fill", async () => {
+    render(<HookHarness />);
+
+    const asset = createAssetFixture({
+      id: "ocr-sequence-asset",
+      rules: [
+        {
+          id: "ocr-sequence-rule-1",
+          label: "字段1",
+          sourceText: "",
+          targetText: "",
+        },
+        {
+          id: "ocr-sequence-rule-2",
+          label: "字段2",
+          sourceText: "",
+          targetText: "",
+        },
+        {
+          id: "ocr-sequence-rule-3",
+          label: "字段3",
+          sourceText: "",
+          targetText: "",
+        },
+      ],
+    });
+
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+      (latestApi as any).setOcrTargetRule("ocr-sequence-rule-1");
+    });
+
+    await act(async () => {
+      (latestApi as any).applyOcrTextToTarget("Line 1");
+      (latestApi as any).applyOcrTextToTarget("Line 2");
+      (latestApi as any).applyOcrTextToTarget("Line 3");
+    });
+
+    expect(latestApi.assets[0]?.rules.map((rule) => rule.sourceText)).toEqual([
+      "Line 1",
+      "Line 2",
+      "Line 3",
+    ]);
+    expect((latestApi as any).ocrTargetRuleId).toBe("ocr-sequence-rule-3");
   });
 
   it("treats B zone edits as ready and still lets C zone save override the outgoing prompt", async () => {
@@ -145,6 +406,10 @@ describe("useAssets batch behavior", () => {
 
     await act(async () => {
       latestApi.handleUpload(createFileList([upload]));
+    });
+
+    await waitFor(() => {
+      expect(latestApi.currentAsset?.rules[0]?.id).toBeTruthy();
     });
 
     const uploadedRuleId = latestApi.currentAsset?.rules[0]?.id;
@@ -332,6 +597,71 @@ describe("useAssets batch behavior", () => {
     });
 
     expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unselected ready images out of the processing state when a batch starts", async () => {
+    const pendingJob = deferred<{ response: object }>();
+
+    generateContentMock.mockImplementation(() => pendingJob.promise);
+
+    render(<HookHarness />);
+
+    const selectedAsset = createAssetFixture({
+      id: "selected-processing-only",
+      name: "selected-processing-only.png",
+      status: "就绪",
+      resultUrl: undefined,
+      errorMessage: undefined,
+      rules: [
+        {
+          id: "selected-processing-rule",
+          label: "字段1",
+          sourceText: "Night Offer",
+          targetText: "Selected only",
+        },
+      ],
+    });
+
+    const untouchedAsset = createAssetFixture({
+      id: "untouched-ready-asset",
+      name: "untouched-ready-asset.png",
+      status: "就绪",
+      resultUrl: undefined,
+      errorMessage: undefined,
+      rules: [
+        {
+          id: "untouched-ready-rule",
+          label: "字段1",
+          sourceText: "Night Offer",
+          targetText: "Do not start",
+        },
+      ],
+    });
+
+    await act(async () => {
+      latestApi.setAssets([selectedAsset, untouchedAsset]);
+      latestApi.setSelectedId(selectedAsset.id);
+      latestApi.setSelectedIds([selectedAsset.id]);
+      latestApi.updateSettings({ apiKeys: "demo-key", parallelLimit: 1 } as never);
+    });
+
+    await act(async () => {
+      void latestApi.startBatch();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(generateContentMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(
+      latestApi.assets.find((asset) => asset.id === selectedAsset.id)?.status,
+    ).toBe("处理中");
+    expect(
+      latestApi.assets.find((asset) => asset.id === untouchedAsset.id)?.status,
+    ).toBe("就绪");
+
+    pendingJob.reject(new Error("stop pending work"));
   });
 
   it("starts multiple Gemini requests in parallel up to the configured limit", async () => {
@@ -736,6 +1066,30 @@ describe("useAssets batch behavior", () => {
 });
 
 describe("UI safeguards", () => {
+  const stubImageLoad = (mode: "load" | "error") => {
+    class MockImage {
+      width = 1200;
+      height = 800;
+      naturalWidth = 1200;
+      naturalHeight = 800;
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => {
+          if (mode === "error") {
+            this.onerror?.();
+            return;
+          }
+
+          this.onload?.();
+        });
+      }
+    }
+
+    vi.stubGlobal("Image", MockImage as unknown as typeof Image);
+  };
+
   it("starts empty before any real upload", () => {
     render(<App />);
 
@@ -751,6 +1105,23 @@ describe("UI safeguards", () => {
 
     expect(screen.getByText("还没有生成结果")).toBeInTheDocument();
     expect(screen.queryByAltText(assetWithoutResult.name)).not.toBeInTheDocument();
+  });
+
+  it("scales small before previews to the card frame without changing the real size label", () => {
+    const smallAsset = createAssetFixture({
+      name: "small-preview.svg",
+      width: 120,
+      height: 80,
+    });
+
+    render(<PreviewPanel currentAsset={smallAsset} previewMode="before" />);
+
+    expect(screen.getByText("small-preview.svg (120 × 80)")).toBeInTheDocument();
+
+    const image = screen.getByAltText("small-preview.svg") as HTMLImageElement;
+
+    expect(image.style.width).toBe("100%");
+    expect(image.style.height).toBe("100%");
   });
 
   it("shows a download button on the after preview and lets the user download only that image", () => {
@@ -812,6 +1183,507 @@ describe("UI safeguards", () => {
     expect(stage.tabIndex).toBe(0);
     expect(stylesSource).toMatch(/visibility:\s*hidden;/);
     expect(stylesSource).toMatch(/\.preview-stage:hover\s+\.preview-download-button,\s*\.preview-stage:focus-within\s+\.preview-download-button/);
+  });
+
+  it("renders clickable OCR hotzones on the before preview", () => {
+    const handleSelect = vi.fn();
+    const assetWithOcr = {
+      ...createAssetFixture({
+        width: 1200,
+        height: 800,
+      }),
+      ocrStatus: "ready",
+      ocrVisible: true,
+      ocrBlocks: [
+        {
+          id: "ocr-hotzone-1",
+          text: "Summer Sale",
+          score: 0.99,
+          box: { x: 120, y: 48, width: 240, height: 60 },
+        },
+      ],
+    };
+
+    const PreviewPanelAny = PreviewPanel as any;
+
+    render(
+      <PreviewPanelAny
+        currentAsset={assetWithOcr}
+        previewMode="before"
+        onSelectOcrText={handleSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "OCR Summer Sale" }));
+
+    expect(handleSelect).toHaveBeenCalledWith("Summer Sale");
+  });
+
+  it("keeps OCR hotzones hidden until the user explicitly turns them on", () => {
+    const handleSelect = vi.fn();
+    const PreviewPanelAny = PreviewPanel as any;
+    const assetWithOcr = {
+      ...createAssetFixture({
+        width: 1200,
+        height: 800,
+      }),
+      ocrStatus: "ready",
+      ocrVisible: false,
+      ocrBlocks: [
+        {
+          id: "ocr-hotzone-1",
+          text: "Summer Sale",
+          score: 0.99,
+          box: { x: 120, y: 48, width: 240, height: 60 },
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <PreviewPanelAny
+        currentAsset={assetWithOcr}
+        previewMode="before"
+        onSelectOcrText={handleSelect}
+        onRunOcr={() => {}}
+        onToggleOcrVisibility={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "OCR Summer Sale" })).not.toBeInTheDocument();
+
+    rerender(
+      <PreviewPanelAny
+        currentAsset={{ ...assetWithOcr, ocrVisible: true }}
+        previewMode="before"
+        onSelectOcrText={handleSelect}
+        onRunOcr={() => {}}
+        onToggleOcrVisibility={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "OCR Summer Sale" })).toBeInTheDocument();
+  });
+
+  it("renders the OCR hint on the left side of the shared A preview bottom action bar", () => {
+    const PreviewPanelAny = PreviewPanel as any;
+    const assetWithOcr = {
+      ...createAssetFixture(),
+      ocrStatus: "ready",
+      ocrVisible: false,
+      ocrBlocks: [
+        {
+          id: "ocr-hotzone-1",
+          text: "Summer Sale",
+          score: 0.99,
+          box: { x: 120, y: 48, width: 240, height: 60 },
+        },
+      ],
+    };
+
+    render(
+      <PreviewPanelAny
+        currentAsset={assetWithOcr}
+        previewMode="before"
+        onRunOcr={() => {}}
+        onToggleOcrVisibility={() => {}}
+      />,
+    );
+
+    const runButton = screen.getByRole("button", { name: "开始 OCR" });
+    const toggleButton = screen.getByRole("button", { name: "显示 OCR" });
+    const hint = screen.getByText('OCR 已完成，点“显示 OCR”后再选字。');
+    const actionBar = document.querySelector(".panel-actions-bar") as HTMLDivElement | null;
+    const panelBody = document.querySelector(".panel-body") as HTMLDivElement | null;
+
+    expect(actionBar).not.toBeNull();
+    expect(panelBody?.style.padding).toBe("0px");
+    expect(actionBar).toContainElement(hint);
+    expect(actionBar).toContainElement(runButton);
+    expect(actionBar).toContainElement(toggleButton);
+    expect(runButton.className).toContain("button-primary");
+    expect(toggleButton.className).toContain("button-ghost");
+    expect(runButton.style.height).toBe("28px");
+    expect(runButton.style.fontSize).toBe("0.75rem");
+    expect(toggleButton.style.height).toBe("28px");
+    expect(toggleButton.style.fontSize).toBe("0.75rem");
+    expect(actionBar?.className).toContain("panel-actions-bar-between");
+    expect(actionBar?.className).not.toContain("preview-actions-bar");
+    expect(stylesSource).toMatch(/\.panel-actions-bar-between\s*\{[\s\S]*?justify-content:\s*space-between;/);
+    expect(stylesSource).toMatch(/\.panel-actions-bar\s*\{[\s\S]*?border-top:\s*1px solid var\(--border-color\);/);
+  });
+
+  it("uses the same shared bottom action bar structure across A, B, and C", () => {
+    const PreviewPanelAny = PreviewPanel as any;
+    const EditPanelAny = EditPanel as any;
+    const asset = createAssetFixture({
+      ocrStatus: "ready",
+      ocrVisible: false,
+      ocrBlocks: [
+        {
+          id: "ocr-hotzone-1",
+          text: "Summer Sale",
+          score: 0.99,
+          box: { x: 120, y: 48, width: 240, height: 60 },
+        },
+      ],
+    });
+
+    render(
+      <div>
+        <PreviewPanelAny
+          currentAsset={asset}
+          previewMode="before"
+          onRunOcr={() => {}}
+          onToggleOcrVisibility={() => {}}
+        />
+        <EditPanelAny
+          assets={[asset]}
+          currentAsset={asset}
+          selectedIds={[]}
+          toggleSelection={() => {}}
+          selectAsset={() => {}}
+          previewMode="before"
+          setPreviewMode={() => {}}
+          updateRule={() => {}}
+          updateNotes={() => {}}
+          insertRuleAfter={() => {}}
+          removeRule={() => {}}
+          clearCurrent={() => {}}
+          clearAllImages={() => {}}
+          handleSlotUpload={() => {}}
+          deleteAsset={() => {}}
+          ocrTargetRuleId={asset.rules[0].id}
+          setOcrTargetRule={() => {}}
+        />
+        <PromptPanel
+          promptDraft="Draft"
+          setPromptDraft={() => {}}
+          savePrompt={() => {}}
+          restoreGeneratedPrompt={() => {}}
+        />
+      </div>,
+    );
+
+    const actionBars = Array.from(document.querySelectorAll(".panel-actions-bar"));
+    const panelBodies = Array.from(document.querySelectorAll(".panel-body")) as HTMLDivElement[];
+    const runButton = screen.getByRole("button", { name: "开始 OCR" });
+    const toggleButton = screen.getByRole("button", { name: "显示 OCR" });
+    const clearButton = screen.getByRole("button", { name: "清空" });
+    const resetButtons = screen.getAllByRole("button", { name: "重置" });
+    const saveButton = screen.getByRole("button", { name: "保存" });
+
+    expect(actionBars).toHaveLength(3);
+    panelBodies.forEach((body) => {
+      expect(body.style.padding).toBe("0px");
+      expect(body.style.minHeight).toBe("0px");
+      expect(body.style.overflow).toBe("hidden");
+    });
+
+    expect(runButton.className).not.toContain("preview-actions-bar");
+    expect(runButton.className).not.toContain("preview-ocr-action");
+    expect(toggleButton.className).not.toContain("preview-ocr-action");
+
+    expect(runButton.style.height).toBe("28px");
+    expect(clearButton.style.height).toBe("28px");
+    expect(saveButton.style.height).toBe("28px");
+    expect(runButton.style.fontSize).toBe(saveButton.style.fontSize);
+    expect(runButton.style.minWidth).toBe(saveButton.style.minWidth);
+    expect(runButton.style.transition).toBe(saveButton.style.transition);
+    expect(toggleButton.style.height).toBe(resetButtons[0]?.style.height);
+    expect(toggleButton.style.fontSize).toBe(resetButtons[0]?.style.fontSize);
+  });
+
+  it("marks the focused before input as the OCR receive target", () => {
+    const setOcrTargetRule = vi.fn();
+    const EditPanelAny = EditPanel as any;
+
+    const asset = createAssetFixture({
+      rules: [
+        {
+          id: "source-rule-1",
+          label: "字段1",
+          sourceText: "Old 1",
+          targetText: "New 1",
+        },
+        {
+          id: "source-rule-2",
+          label: "字段2",
+          sourceText: "Old 2",
+          targetText: "New 2",
+        },
+      ],
+    });
+
+    render(
+      <EditPanelAny
+        assets={[asset]}
+        currentAsset={asset}
+        selectedIds={[]}
+        toggleSelection={() => {}}
+        selectAsset={() => {}}
+        previewMode="before"
+        setPreviewMode={() => {}}
+        updateRule={() => {}}
+        updateNotes={() => {}}
+        insertRuleAfter={() => {}}
+        removeRule={() => {}}
+        clearCurrent={() => {}}
+        clearAllImages={() => {}}
+        handleSlotUpload={() => {}}
+        deleteAsset={() => {}}
+        ocrTargetRuleId="source-rule-1"
+        setOcrTargetRule={setOcrTargetRule}
+      />,
+    );
+
+    fireEvent.focus(screen.getByDisplayValue("Old 2"));
+
+    expect(setOcrTargetRule).toHaveBeenCalledWith("source-rule-2");
+  });
+
+  it("exposes thumbnail preview switches as real buttons for keyboard users", () => {
+    const setPreviewMode = vi.fn();
+    const selectAsset = vi.fn();
+    const EditPanelAny = EditPanel as any;
+    const asset = createAssetFixture({
+      id: "thumb-switch-asset",
+      name: "switchable.png",
+    });
+
+    render(
+      <EditPanelAny
+        assets={[asset]}
+        currentAsset={null}
+        selectedIds={[]}
+        toggleSelection={() => {}}
+        selectAsset={selectAsset}
+        previewMode="before"
+        setPreviewMode={setPreviewMode}
+        updateRule={() => {}}
+        updateNotes={() => {}}
+        insertRuleAfter={() => {}}
+        removeRule={() => {}}
+        clearCurrent={() => {}}
+        clearAllImages={() => {}}
+        handleSlotUpload={() => {}}
+        deleteAsset={() => {}}
+        ocrTargetRuleId={asset.rules[0].id}
+        setOcrTargetRule={() => {}}
+      />,
+    );
+
+    const beforeButton = screen.getByRole("button", {
+      name: "切换 switchable.png 为前图预览",
+    });
+    const afterButton = screen.getByRole("button", {
+      name: "切换 switchable.png 为后图预览",
+    });
+
+    afterButton.focus();
+
+    expect(afterButton).toHaveFocus();
+    expect(beforeButton).toHaveAttribute("type", "button");
+    expect(afterButton).toHaveAttribute("type", "button");
+
+    fireEvent.click(afterButton);
+
+    expect(selectAsset).toHaveBeenCalledWith(asset.id);
+    expect(setPreviewMode).toHaveBeenCalledWith("after");
+  });
+
+  it("stores a page-visible error message when an uploaded file cannot be read as an image", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((file: File) => `blob:${file.name}`),
+    });
+
+    stubImageLoad("error");
+
+    render(<HookHarness />);
+
+    const brokenUpload = new File(["not an image"], "broken.png", {
+      type: "image/png",
+    });
+
+    await expect(
+      latestApi.handleUpload(createFileList([brokenUpload])),
+    ).resolves.toBeUndefined();
+
+    await waitFor(() => {
+      expect(latestApi.batchMessage).toBe("无法读取图片尺寸。");
+    });
+  });
+
+  it("clears the top upload input after a failed image read so the same file can be retried", async () => {
+    stubImageLoad("error");
+
+    render(<App />);
+
+    const brokenUpload = new File(["not an image"], "broken-top.png", {
+      type: "image/png",
+    });
+    const uploadInput = document.querySelector(
+      'input[type="file"][multiple]',
+    ) as HTMLInputElement | null;
+
+    expect(uploadInput).not.toBeNull();
+    makeFileInputValueMutable(uploadInput!, "C:\\fakepath\\broken-top.png");
+
+    fireEvent.change(uploadInput!, {
+      target: {
+        files: createFileList([brokenUpload]),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("无法读取图片尺寸。")).toBeInTheDocument();
+    });
+
+    expect(uploadInput!.value).toBe("");
+  });
+
+  it("clears the empty-slot upload input after a failed image read so the same file can be retried", async () => {
+    stubImageLoad("error");
+
+    render(<App />);
+
+    const brokenUpload = new File(["not an image"], "broken-slot.png", {
+      type: "image/png",
+    });
+    const slotInput = document.querySelector(
+      'input[type="file"]:not([multiple])',
+    ) as HTMLInputElement | null;
+
+    expect(slotInput).not.toBeNull();
+    makeFileInputValueMutable(slotInput!, "C:\\fakepath\\broken-slot.png");
+
+    fireEvent.change(slotInput!, {
+      target: {
+        files: createFileList([brokenUpload]),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("无法读取图片尺寸。")).toBeInTheDocument();
+    });
+
+    expect(slotInput!.value).toBe("");
+  });
+
+  it("maps thumbnail status dots to the real asset states instead of painting ready work as failed", () => {
+    const EditPanelAny = EditPanel as any;
+    const readyAsset = createAssetFixture({
+      id: "thumb-ready",
+      status: "就绪",
+    });
+    const processingAsset = createAssetFixture({
+      id: "thumb-processing",
+      status: "处理中",
+    });
+    const successAsset = createAssetFixture({
+      id: "thumb-success",
+      status: "成功",
+    });
+    const failedAsset = createAssetFixture({
+      id: "thumb-failed",
+      status: "失败",
+    });
+
+    render(
+      <EditPanelAny
+        assets={[readyAsset, processingAsset, successAsset, failedAsset]}
+        currentAsset={readyAsset}
+        selectedIds={[]}
+        toggleSelection={() => {}}
+        selectAsset={() => {}}
+        previewMode="before"
+        setPreviewMode={() => {}}
+        updateRule={() => {}}
+        updateNotes={() => {}}
+        insertRuleAfter={() => {}}
+        removeRule={() => {}}
+        clearCurrent={() => {}}
+        clearAllImages={() => {}}
+        handleSlotUpload={() => {}}
+        deleteAsset={() => {}}
+        ocrTargetRuleId={readyAsset.rules[0].id}
+        setOcrTargetRule={() => {}}
+      />,
+    );
+
+    expect(
+      document.querySelector('[data-thumb-status="就绪"]') as HTMLDivElement | null,
+    )?.toHaveStyle({ backgroundColor: "var(--accent-hover)" });
+    expect(
+      document.querySelector('[data-thumb-status="处理中"]') as HTMLDivElement | null,
+    )?.toHaveStyle({ backgroundColor: "var(--accent)" });
+    expect(
+      document.querySelector('[data-thumb-status="成功"]') as HTMLDivElement | null,
+    )?.toHaveStyle({ backgroundColor: "var(--success)" });
+    expect(
+      document.querySelector('[data-thumb-status="失败"]') as HTMLDivElement | null,
+    )?.toHaveStyle({ backgroundColor: "var(--error)" });
+  });
+
+  it("keeps OCR manual after upload and guides the user to click the start button first", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((file: File) => `blob:${file.name}`),
+    });
+
+    stubImageLoad("load");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+
+        if (url.includes("/api/ocr")) {
+          return {
+            ok: true,
+            json: async () => ({ blocks: [] }),
+          };
+        }
+
+        return {
+          blob: async () => new Blob(["uploaded-image"], { type: "image/jpeg" }),
+        };
+      }),
+    );
+
+    render(<App />);
+
+    const upload = new File(["binary"], "poster.jpg", { type: "image/jpeg" });
+    const uploadInput = document.querySelector(
+      'input[type="file"][multiple]',
+    ) as HTMLInputElement | null;
+
+    expect(uploadInput).not.toBeNull();
+
+    fireEvent.change(uploadInput!, {
+      target: { files: createFileList([upload]) },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("poster.jpg (1200 × 800)")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "开始 OCR" })).toBeInTheDocument();
+    expect(screen.getByText('先点“开始 OCR”')).toBeInTheDocument();
+    expect(screen.getByText('先点 A 区底部“开始 OCR”')).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith(
+      "/api/ocr",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
   });
 
   it("exposes accessible settings controls", () => {
