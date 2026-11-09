@@ -1020,7 +1020,6 @@ export const useAssets = () => {
 
         // 有些网关只开放聊天接口出图（Images API 直接 404），这时回退到聊天接口
         let imageUrl: string;
-        let usedChatFallback = false;
         try {
           const image = await client.generateImage(prompt, {
             model: settings.imageModel,
@@ -1031,7 +1030,6 @@ export const useAssets = () => {
           imageUrl = image.url;
         } catch (error) {
           if (!isImagesEndpointMissing(error)) throw error;
-          usedChatFallback = true;
           imageUrl = await generateImageWithChatCompletions({
             baseUrl: proxyGatewayUrl(settings.baseUrl, false),
             key: settings.token,
@@ -1049,17 +1047,8 @@ export const useAssets = () => {
         if (bytes.byteLength === 0) {
           throw new Error("网关返回的结果为空，请检查网关响应。");
         }
-        let resultBlob = new Blob([bytes as unknown as BlobPart], { type: "image/png" });
-        if (usedChatFallback) {
-          // 聊天接口出图不能指定尺寸，统一缩放到原图宽高，保证前后对比一致
-          const fitted = await resizeBlobToSize(resultBlob, liveAsset.width, liveAsset.height);
-          if (fitted) {
-            resultBlob = fitted.blob;
-            appendLog(
-              `尺寸已对齐原图（等比缩放留白）：${fitted.fromWidth}×${fitted.fromHeight} → ${liveAsset.width}×${liveAsset.height}`,
-            );
-          }
-        }
+        // 出图保持模型原始像素，不拉伸；尺寸差异只在导出时处理
+        const resultBlob = new Blob([bytes as unknown as BlobPart], { type: "image/png" });
         const resultUrl = URL.createObjectURL(resultBlob);
 
         if (batchRunIdRef.current !== runId || controller.signal.aborted) {
@@ -1292,30 +1281,50 @@ export const useAssets = () => {
     setBatchMessage(null);
   };
 
+  // 导出时若结果尺寸与原图不同，按原图尺寸等比缩放留白，避免画面被拉伸
+  const triggerAssetDownload = async (asset: AssetItem) => {
+    if (!asset.resultUrl) return;
+
+    let href = asset.resultUrl;
+    let temporary = false;
+
+    if (asset.resultBlob) {
+      try {
+        const fitted = await resizeBlobToSize(asset.resultBlob, asset.width, asset.height);
+        if (fitted) {
+          href = URL.createObjectURL(fitted.blob);
+          temporary = true;
+        }
+      } catch {
+        href = asset.resultUrl;
+      }
+    }
+
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `edited_${asset.name}`;
+    link.click();
+
+    if (temporary) {
+      setTimeout(() => URL.revokeObjectURL(href), 5000);
+    }
+  };
+
   const downloadSelected = () => {
     if (selectedIds.length === 0) {
       setBatchMessage("Please select images to download.");
       return;
     }
     selectedIds.forEach((id) => {
-        const asset = assets.find(a => a.id === id);
-        if (asset?.resultUrl) {
-            const link = document.createElement('a');
-            link.href = asset.resultUrl;
-            link.download = `edited_${asset.name}`;
-            link.click();
-        }
+      const asset = assets.find((a) => a.id === id);
+      if (asset) void triggerAssetDownload(asset);
     });
   };
 
   const downloadCurrentResult = () => {
     const asset = assetsRef.current.find((item) => item.id === selectedId);
-    if (!asset?.resultUrl) return;
-
-    const link = document.createElement("a");
-    link.href = asset.resultUrl;
-    link.download = `edited_${asset.name}`;
-    link.click();
+    if (!asset) return;
+    void triggerAssetDownload(asset);
   };
 
   const savePrompt = () => {
