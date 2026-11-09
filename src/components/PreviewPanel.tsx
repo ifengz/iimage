@@ -90,7 +90,7 @@ export const PreviewPanel = ({
 
   if (!currentAsset) return (
     <div class="panel">
-      <div class="panel-header">
+      <div class="panel-header preview-panel-header">
         <span class="panel-title">A区 · 预览</span>
       </div>
       <div class="panel-body" style={{ display: 'grid', placeItems: 'center', height: '100%', overflow: 'hidden' }}>

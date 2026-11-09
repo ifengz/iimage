@@ -82,6 +82,21 @@ body {
   justify-content: flex-end;
   gap: var(--spacing-sm);
   min-width: 0;
+  max-width: 62%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.preview-header-meta > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.preview-panel-header {
+  min-height: 52px;
+  box-sizing: border-box;
 }
 
 .panel-actions-bar {
