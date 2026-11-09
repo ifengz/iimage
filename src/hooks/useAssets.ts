@@ -342,9 +342,16 @@ export const useAssets = () => {
     // 旧版本把网关令牌持久化在 iimage-gateway 键里，按凭证红线清除
     localStorage.removeItem("iimage-gateway");
     const persisted = loadMediaSettings();
+    // 令牌只放本标签页：刷新保留，关标签页即清除，不写进长期存储
+    let tabToken = "";
+    try {
+      tabToken = sessionStorage.getItem("iimage-gateway-token") ?? "";
+    } catch {
+      tabToken = "";
+    }
     return {
       baseUrl: persisted.baseUrl,
-      token: "",
+      token: tabToken,
       imageModel: persisted.imageModel,
       imageSize: persisted.imageSize,
       parallelLimit: 3,
@@ -368,8 +375,13 @@ export const useAssets = () => {
             ? prev.parallelLimit
             : clampParallelLimit(newSettings.parallelLimit),
       };
-      // 只持久化非敏感配置；令牌永不落盘。URL 非法时跳过持久化，
-      // 由连接测试和生图请求把真实错误暴露给用户
+      // 只持久化非敏感配置；令牌只进 sessionStorage（本标签页）。
+      // URL 非法时跳过持久化，由连接测试和生图请求把真实错误暴露给用户
+      try {
+        sessionStorage.setItem("iimage-gateway-token", next.token);
+      } catch {
+        /* 隐私模式禁用 sessionStorage 时忽略 */
+      }
       try {
         saveMediaSettings({
           baseUrl: next.baseUrl,

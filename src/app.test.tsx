@@ -134,6 +134,7 @@ describe("useAssets batch behavior", () => {
     downloadMock.mockImplementation(async () => new Uint8Array([1, 2, 3]));
 
     localStorage.clear();
+    sessionStorage.clear();
 
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
@@ -1981,6 +1982,7 @@ describe("media settings persistence", () => {
 
   it("falls back to empty settings when stored settings are corrupted", () => {
     localStorage.clear();
+    sessionStorage.clear();
     localStorage.setItem("newapi-media-settings", "{not-json");
 
     render(<HookHarness />);

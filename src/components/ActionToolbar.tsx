@@ -9,6 +9,43 @@ import {
 import type { MediaGatewaySettings } from "../hooks/useAssets";
 import { proxyGatewayUrl } from "../dev-gateway-proxy";
 
+const MODEL_CACHE_KEY = "iimage-model-cache";
+
+type ModelCache = { baseUrl: string; models: MediaModel[]; hints: Record<string, string[]> };
+
+const readModelCache = (): ModelCache | null => {
+  try {
+    const raw = localStorage.getItem(MODEL_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ModelCache>;
+    if (typeof parsed.baseUrl !== "string" || !Array.isArray(parsed.models)) return null;
+    return {
+      baseUrl: parsed.baseUrl,
+      models: parsed.models,
+      hints: (parsed.hints as Record<string, string[]>) ?? {},
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeModelCache = (cache: ModelCache) => {
+  try {
+    localStorage.setItem(MODEL_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* 存储已满或被禁用时忽略 */
+  }
+};
+
+const classifyModels = (models: MediaModel[], hints: Record<string, string[]>) => {
+  const enriched = models.map((model) =>
+    model.supported_endpoint_types?.length || !hints[model.id]
+      ? model
+      : { ...model, supported_endpoint_types: hints[model.id] },
+  );
+  return getModelChoices(enriched);
+};
+
 interface ActionToolbarProps {
   handleUpload: (files: FileList | null) => Promise<void> | void;
   startBatch: () => void;
@@ -46,6 +83,16 @@ export const ActionToolbar = ({
     (endpointHints[id] ?? []).some((typeName) => typeName === "openai" || typeName === "gemini");
   const chatOnlyModels = unclassifiedModels.filter((model) => isChatOnly(model.id));
   const unknownModels = unclassifiedModels.filter((model) => !isChatOnly(model.id));
+
+  // 上次同步过的模型目录直接回填，省得每次重测
+  useEffect(() => {
+    const cache = readModelCache();
+    if (!cache || !settings.baseUrl || cache.baseUrl !== settings.baseUrl) return;
+    const choices = classifyModels(cache.models, cache.hints);
+    setEndpointHints(cache.hints);
+    setImageModels(choices.image);
+    setUnclassifiedModels(choices.unclassified);
+  }, [settings.baseUrl]);
 
 
   const trigger = (name: string, fn: () => void) => {
@@ -248,7 +295,7 @@ export const ActionToolbar = ({
                   borderRadius: 'var(--radius-md, 6px)',
                 }}
               >
-                ⚠️ 仅本地开发使用：网关令牌只保存在本次页面内存中，刷新后需重新填写，禁止用于生产环境。
+                ⚠️ 仅本地开发使用：令牌只存本标签页（关标签页即清除），模型目录已缓存，禁止用于生产环境。
               </div>
 
               <div class="setting-row">
@@ -376,12 +423,8 @@ export const ActionToolbar = ({
                         const hints = await fetchEndpointHints(settings.baseUrl).catch(
                           () => ({}) as Record<string, string[]>,
                         );
-                        const enriched = result.models.map((model) =>
-                          model.supported_endpoint_types?.length || !hints[model.id]
-                            ? model
-                            : { ...model, supported_endpoint_types: hints[model.id] },
-                        );
-                        const choices = getModelChoices(enriched);
+                        const choices = classifyModels(result.models, hints);
+                        writeModelCache({ baseUrl: settings.baseUrl, models: result.models, hints });
                         // 结果与模型列表一起提交，避免“已获取”先出现、下拉还空一瞬
                         setTestResult(result);
                         setEndpointHints(hints);
