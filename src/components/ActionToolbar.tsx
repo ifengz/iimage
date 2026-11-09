@@ -17,6 +17,8 @@ interface ActionToolbarProps {
   canStartBatch: boolean;
   settings: MediaGatewaySettings;
   updateSettings: (newSettings: Partial<MediaGatewaySettings>) => void;
+  logs: string[];
+  clearLogs: () => void;
 }
 
 export const ActionToolbar = ({
@@ -28,9 +30,12 @@ export const ActionToolbar = ({
   canStartBatch,
   settings,
   updateSettings,
+  logs,
+  clearLogs,
 }: ActionToolbarProps) => {
   const [activeBtn, setActiveBtn] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLogOpen, setIsLogOpen] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [imageModels, setImageModels] = useState<MediaModel[]>([]);
@@ -141,6 +146,68 @@ export const ActionToolbar = ({
       >
         下载图片
       </button>
+
+      <button
+        class="button"
+        type="button"
+        aria-haspopup="dialog"
+        aria-label="打开运行日志"
+        style={{ height: '32px', padding: '0 var(--spacing-lg)' }}
+        onClick={() => setIsLogOpen(true)}
+      >
+        日志{logs.length > 0 ? `（${logs.length}）` : ""}
+      </button>
+
+      {/* Logs Modal */}
+      {isLogOpen && (
+        <div class="modal-backdrop" onClick={() => setIsLogOpen(false)}>
+          <div
+            class="modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logs-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="panel-header">
+              <span class="panel-title" id="logs-dialog-title">运行日志</span>
+              <button
+                class="button button-ghost"
+                type="button"
+                aria-label="关闭运行日志"
+                style={{ width: '24px', height: '24px', padding: 0 }}
+                onClick={() => setIsLogOpen(false)}
+              >✕</button>
+            </div>
+            <div class="panel-body" style={{ padding: 'var(--spacing-md)' }}>
+              <pre class="log-modal-body">
+                {logs.length === 0
+                  ? "还没有日志，上传、OCR、生成都会记在这里。"
+                  : logs.join("\n")}
+              </pre>
+            </div>
+            <div class="panel-actions-bar panel-actions-bar-between">
+              <span class="panel-action-hint">{logs.length} 条记录</span>
+              <div class="panel-actions-group">
+                <button
+                  class="button button-ghost"
+                  type="button"
+                  disabled={logs.length === 0}
+                  onClick={clearLogs}
+                >
+                  清空日志
+                </button>
+                <button
+                  class="button button-primary"
+                  type="button"
+                  onClick={() => setIsLogOpen(false)}
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {isModalOpen && (
