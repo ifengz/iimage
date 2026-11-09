@@ -348,26 +348,26 @@ export const PreviewPanel = ({
           style={previewMode === "before" ? undefined : { visibility: "hidden" }}
         >
           <div class="panel-action-hint">{ocrActionHint}</div>
-            <div class="panel-actions-group">
-              <button
-                type="button"
-                class="button button-primary"
-                style={compactPrimaryActionButtonStyle}
-                onClick={onRunOcr}
-                disabled={!canRunOcr || currentAsset.ocrStatus === "loading"}
-              >
-                开始 OCR
-              </button>
-              <button
-                type="button"
-                class="button button-ghost preview-ocr-toggle"
-                style={compactGhostActionButtonStyle}
-                aria-pressed={currentAsset.ocrVisible}
-                onClick={onToggleOcrVisibility}
-                disabled={!canToggleOcr}
-              >
-                {currentAsset.ocrVisible ? "隐藏 OCR" : "显示 OCR"}
-              </button>
+          <div class="panel-actions-group">
+            <button
+              type="button"
+              class="button button-primary"
+              style={compactPrimaryActionButtonStyle}
+              onClick={onRunOcr}
+              disabled={!canRunOcr || currentAsset.ocrStatus === "loading"}
+            >
+              开始 OCR
+            </button>
+            <button
+              type="button"
+              class="button button-ghost preview-ocr-toggle"
+              style={compactGhostActionButtonStyle}
+              aria-pressed={currentAsset.ocrVisible}
+              onClick={onToggleOcrVisibility}
+              disabled={!canToggleOcr}
+            >
+              {currentAsset.ocrVisible ? "隐藏 OCR" : "显示 OCR"}
+            </button>
           </div>
         </div>
       </div>
