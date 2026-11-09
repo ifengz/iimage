@@ -133,6 +133,7 @@ export const EditPanel = ({
                       cursor: 'pointer'
                     }}
                     onClick={() => selectAsset(asset.id)}
+                    title={asset.status === "失败" ? asset.errorMessage ?? asset.name : asset.name}
                   >
                     <img src={asset.previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     

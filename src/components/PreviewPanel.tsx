@@ -98,6 +98,11 @@ export const PreviewPanel = ({
   );
 
   const showAfterPlaceholder = previewMode === "after" && !currentAsset.resultUrl;
+  const showAfterFailure =
+    showAfterPlaceholder &&
+    currentAsset.status === "失败" &&
+    Boolean(currentAsset.errorMessage);
+  const failureIsMissingEndpoint = Boolean(currentAsset.errorMessage?.includes("404"));
   const displayUrl = previewMode === "after" ? currentAsset.resultUrl : currentAsset.previewUrl;
   const canDownloadResult = previewMode === "after" && Boolean(currentAsset.resultUrl) && Boolean(onDownloadResult);
   const canRunOcr = previewMode === "before" && Boolean(currentAsset.uploadFile) && Boolean(onRunOcr);
@@ -203,7 +208,34 @@ export const PreviewPanel = ({
             padding: "var(--spacing-md)",
           }}
         >
-          {showAfterPlaceholder ? (
+          {showAfterFailure ? (
+            <div
+              style={{
+                display: 'grid',
+                placeItems: 'center',
+                gap: '8px',
+                textAlign: 'center',
+                maxWidth: '520px',
+                padding: '0 24px',
+              }}
+            >
+              <strong style={{ color: 'var(--error)' }}>生成失败</strong>
+              <span
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {currentAsset.errorMessage}
+              </span>
+              {failureIsMissingEndpoint ? (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  网关没有为该模型开放生图接口，换一个支持生图的模型或联系网关管理员。
+                </span>
+              ) : null}
+            </div>
+          ) : showAfterPlaceholder ? (
             <div
               style={{
                 display: 'grid',

@@ -941,6 +941,7 @@ export const useAssets = () => {
     );
 
     let cursor = 0;
+    const batchFailures: string[] = [];
 
     const runNext = async (): Promise<void> => {
       const asset = readyItems[cursor++];
@@ -1028,6 +1029,8 @@ export const useAssets = () => {
           return;
         }
 
+        const failureMessage = error.message || "生成请求失败。";
+        batchFailures.push(failureMessage);
         setAssets((prev) =>
           prev.map((item) =>
             item.id !== asset.id
@@ -1035,7 +1038,7 @@ export const useAssets = () => {
               : {
                   ...item,
                   status: "失败",
-                  errorMessage: error.message || "生成请求失败。",
+                  errorMessage: failureMessage,
                 },
           ),
         );
@@ -1053,7 +1056,11 @@ export const useAssets = () => {
     await Promise.all(Array.from({ length: parallelLimit }, () => runNext()));
 
     if (batchRunIdRef.current === runId) {
-      setBatchMessage("Batch processing finished.");
+      setBatchMessage(
+        batchFailures.length === 0
+          ? "Batch processing finished."
+          : `Batch processing finished. ${batchFailures.length} 张失败：${batchFailures[0]}`,
+      );
       resetBatchPhases();
     }
   };
