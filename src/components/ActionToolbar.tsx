@@ -1,3 +1,4 @@
+import { fetchEndpointHints } from "../gateway-endpoints";
 import { useState, useEffect } from "preact/hooks";
 import {
   getModelChoices,
@@ -39,6 +40,7 @@ export const ActionToolbar = ({
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [imageModels, setImageModels] = useState<MediaModel[]>([]);
+  const [endpointHints, setEndpointHints] = useState<Record<string, string[]>>({});
   const [unclassifiedModels, setUnclassifiedModels] = useState<MediaModel[]>([]);
 
   const trigger = (name: string, fn: () => void) => {
@@ -289,7 +291,10 @@ export const ActionToolbar = ({
                   {imageModels.length > 0 && (
                     <optgroup label="已声明生图能力">
                       {imageModels.map((model) => (
-                        <option key={model.id} value={model.id}>{model.id}</option>
+                        <option key={model.id} value={model.id}>
+                          {model.id}
+                          {endpointHints[model.id] ? ` · ${endpointHints[model.id].join("/")}` : ""}
+                        </option>
                       ))}
                     </optgroup>
                   )}
@@ -306,6 +311,11 @@ export const ActionToolbar = ({
                       <option value={settings.imageModel}>{settings.imageModel}</option>
                     )}
                 </select>
+                {settings.imageModel && endpointHints[settings.imageModel] && (
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                    网关声明接口：{endpointHints[settings.imageModel].join("、")}（images 走改图，openai/gemini 走聊天重画）
+                  </div>
+                )}
               </div>
 
               <div class="setting-row">
@@ -344,6 +354,11 @@ export const ActionToolbar = ({
                       })
                       .then((result) => {
                         setTestResult(result);
+                        if (result.ok) {
+                          void fetchEndpointHints(settings.baseUrl)
+                            .then(setEndpointHints)
+                            .catch(() => setEndpointHints({}));
+                        }
                         if (result.ok && result.models) {
                           const choices = getModelChoices(result.models);
                           setImageModels(choices.image);
