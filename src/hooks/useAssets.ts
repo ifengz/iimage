@@ -1038,6 +1038,7 @@ export const useAssets = () => {
 
         // 有些网关只开放聊天接口出图（Images API 直接 404），这时回退到聊天接口
         let imageUrl: string;
+        let usedEndpointLabel = "图片接口";
         try {
           let image: { url: string } | null = null;
           let failure: unknown = null;
@@ -1068,6 +1069,7 @@ export const useAssets = () => {
           }
         } catch (error) {
           if (!isImagesEndpointMissing(error)) throw error;
+          usedEndpointLabel = "聊天接口（重画）";
           imageUrl = await generateImageWithChatCompletions({
             baseUrl: proxyGatewayUrl(settings.baseUrl, false),
             key: settings.token,
@@ -1129,7 +1131,7 @@ export const useAssets = () => {
             };
           }),
         );
-        appendLog(`成功：${asset.name}`);
+        appendLog(`成功：${asset.name}（${usedEndpointLabel}）`);
         if (asset.id === selectedIdRef.current) {
           setPreviewMode("after");
         }
