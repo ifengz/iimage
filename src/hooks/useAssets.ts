@@ -560,7 +560,8 @@ export const useAssets = () => {
       batchRunIdRef.current += 1;
       abortAllTrackedRequests();
       resetBatchPhases();
-      assetsRef.current.forEach(revokeAssetUrls);
+      // 这里不再统一 revoke：开发态热更新会重挂组件，assets 里的 blob URL 还在用，
+      // 撤销后预览就变破图。删除/替换时已各自 revoke。
       activeBatchPendingIdsRef.current.clear();
     };
   }, []);

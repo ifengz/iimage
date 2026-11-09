@@ -104,6 +104,11 @@ export const PreviewPanel = ({
     Boolean(currentAsset.errorMessage);
   const failureIsMissingEndpoint = Boolean(currentAsset.errorMessage?.includes("404"));
   const displayUrl = previewMode === "after" ? currentAsset.resultUrl : currentAsset.previewUrl;
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [displayUrl]);
   const canDownloadResult = previewMode === "after" && Boolean(currentAsset.resultUrl) && Boolean(onDownloadResult);
   const canRunOcr = previewMode === "before" && Boolean(currentAsset.uploadFile) && Boolean(onRunOcr);
   const canToggleOcr =
@@ -274,6 +279,7 @@ export const PreviewPanel = ({
                 <img
                   src={displayUrl}
                   alt={currentAsset.name}
+                  onError={() => setImageFailed(true)}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -282,7 +288,24 @@ export const PreviewPanel = ({
                     display: 'block'
                   }}
                 />
-                {shouldShowOcrOverlay ? (
+                {imageFailed ? (
+                  <div
+                    class="preview-image-lost"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "grid",
+                      placeItems: "center",
+                      padding: "16px",
+                      fontSize: "0.85rem",
+                      color: "var(--text-muted)",
+                      textAlign: "center",
+                    }}
+                  >
+                    预览图已失效，请重新上传或重新生成。
+                  </div>
+                ) : null}
+                {shouldShowOcrOverlay && !imageFailed ? (
                   <div class="ocr-overlay" aria-label="OCR overlay">
                     {currentAsset.ocrBlocks.map((block) => (
                       <button
