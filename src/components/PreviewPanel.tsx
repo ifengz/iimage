@@ -195,7 +195,9 @@ export const PreviewPanel = ({
         <span class="panel-title">A区 · 预览 ({previewMode === 'before' ? 'Before' : 'After'})</span>
         <div class="preview-header-meta">
           <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-            {currentAsset.name} ({currentAsset.width} × {currentAsset.height})
+            {previewMode === "after" && currentAsset.resultWidth
+              ? `${currentAsset.name} (${currentAsset.resultWidth} × ${currentAsset.resultHeight} / 原图 ${currentAsset.width} × ${currentAsset.height})`
+              : `${currentAsset.name} (${currentAsset.width} × ${currentAsset.height})`}
           </span>
         </div>
       </div>

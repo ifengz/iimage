@@ -1056,9 +1056,10 @@ export const useAssets = () => {
           return;
         }
 
+        let resultDimensions: { width: number; height: number };
         try {
-          const dimensions = await readImageDimensions(resultUrl);
-          if (dimensions.width <= 0 || dimensions.height <= 0) {
+          resultDimensions = await readImageDimensions(resultUrl);
+          if (resultDimensions.width <= 0 || resultDimensions.height <= 0) {
             throw new Error("图片尺寸无效。");
           }
         } catch {
@@ -1084,6 +1085,8 @@ export const useAssets = () => {
               status: "成功",
               resultUrl,
               resultBlob,
+              resultWidth: resultDimensions.width,
+              resultHeight: resultDimensions.height,
               errorMessage: undefined,
             };
           }),

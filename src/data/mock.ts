@@ -33,6 +33,8 @@ export interface AssetItem {
   uploadFile?: File;
   resultUrl?: string;
   resultBlob?: Blob;
+  resultWidth?: number;
+  resultHeight?: number;
   notes: string;
   rules: ModificationRule[];
   ocrStatus: OcrStatus;
