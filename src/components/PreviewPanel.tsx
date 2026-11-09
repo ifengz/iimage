@@ -231,7 +231,7 @@ export const PreviewPanel = ({
               </span>
               {failureIsMissingEndpoint ? (
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  网关没有为该模型开放生图接口，换一个支持生图的模型或联系网关管理员。
+                  已自动改用聊天接口出图，仍然失败；请确认该模型是否支持出图，或联系网关管理员。
                 </span>
               ) : null}
             </div>

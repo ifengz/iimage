@@ -11,6 +11,7 @@ import {
 } from "../data/mock";
 import { createMediaClient } from "newapi-media-client";
 import { proxyGatewayUrl } from "../dev-gateway-proxy";
+import { generateImageWithChatCompletions } from "../chat-image-generator";
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -155,6 +156,12 @@ const deriveStatus = (asset: AssetItem, savedPrompt?: string): AssetStatus => {
   if (asset.status === "成功" && asset.resultUrl) return "成功";
   if (asset.status === "就绪") return "就绪";
   return draftStatus(asset, savedPrompt);
+};
+
+const isImagesEndpointMissing = (error: unknown) => {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 404) return true;
+  return /HTTP 404/.test(String((error as { message?: unknown } | null)?.message ?? ""));
 };
 
 const buildInitialPrompts = (assets: AssetItem[]) =>
@@ -969,15 +976,30 @@ export const useAssets = () => {
         leavePhase = enterBatchPhase("requesting");
         const prompt = savedPromptsRef.current[asset.id] ?? buildPrompt(liveAsset);
 
-        const image = await client.generateImage(prompt, {
-          model: settings.imageModel,
-          images: [referenceImage],
-          size: snapSize(liveAsset.width, liveAsset.height),
-          signal: controller.signal,
-        });
+        // 有些网关只开放聊天接口出图（Images API 直接 404），这时回退到聊天接口
+        let imageUrl: string;
+        try {
+          const image = await client.generateImage(prompt, {
+            model: settings.imageModel,
+            images: [referenceImage],
+            size: snapSize(liveAsset.width, liveAsset.height),
+            signal: controller.signal,
+          });
+          imageUrl = image.url;
+        } catch (error) {
+          if (!isImagesEndpointMissing(error)) throw error;
+          imageUrl = await generateImageWithChatCompletions({
+            baseUrl: proxyGatewayUrl(settings.baseUrl, false),
+            key: settings.token,
+            model: settings.imageModel,
+            prompt,
+            images: [referenceImage],
+            signal: controller.signal,
+          });
+        }
 
         // G5：渠道链接普遍 24h 过期，拿到即下载转存为本地 blob URL；取消信号贯穿下载
-        const bytes = await client.download(proxyGatewayUrl(image.url, true), {
+        const bytes = await client.download(proxyGatewayUrl(imageUrl, true), {
           signal: controller.signal,
         });
         if (bytes.byteLength === 0) {
