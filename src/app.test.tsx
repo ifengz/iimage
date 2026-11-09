@@ -1781,7 +1781,7 @@ describe("UI safeguards", () => {
     expect(screen.getByLabelText("网关令牌")).toBeInTheDocument();
     expect(screen.getByLabelText("生图模型")).toBeInTheDocument();
     expect(screen.getByLabelText("并行数")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "测试连接" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "同步模型" })).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("仅本地开发使用");
   });
 
@@ -1801,7 +1801,7 @@ describe("UI safeguards", () => {
       target: { value: "http://localhost:3000" },
     });
     fireEvent.input(screen.getByLabelText("网关令牌"), { target: { value: "sk-test" } });
-    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    fireEvent.click(screen.getByRole("button", { name: "同步模型" }));
 
     await waitFor(() => {
       expect(screen.getByText(/已获取 2 个模型/)).toBeInTheDocument();
@@ -1838,7 +1838,7 @@ describe("UI safeguards", () => {
       target: { value: "http://localhost:3000" },
     });
     fireEvent.input(screen.getByLabelText("网关令牌"), { target: { value: "sk-test" } });
-    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    fireEvent.click(screen.getByRole("button", { name: "同步模型" }));
 
     await waitFor(() => {
       expect(screen.getByText(/已获取 2 个模型/)).toBeInTheDocument();
@@ -1865,7 +1865,7 @@ describe("UI safeguards", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
-    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    fireEvent.click(screen.getByRole("button", { name: "同步模型" }));
 
     await waitFor(() => {
       expect(screen.getByText(/请先填写 Base URL 和 API Key/)).toBeInTheDocument();

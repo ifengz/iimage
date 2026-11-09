@@ -10,6 +10,7 @@ import {
   getRuntimeSeedAssets,
 } from "../data/mock";
 import { createMediaClient } from "newapi-media-client";
+import { proxyGatewayUrl } from "../dev-gateway-proxy";
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -901,7 +902,7 @@ export const useAssets = () => {
     let client: ReturnType<typeof createMediaClient>;
     try {
       client = createMediaClient({
-        baseUrl: settings.baseUrl,
+        baseUrl: proxyGatewayUrl(settings.baseUrl, false),
         key: settings.token,
         imageModel: settings.imageModel,
         imageSize: settings.imageSize,
@@ -975,7 +976,7 @@ export const useAssets = () => {
         });
 
         // G5：渠道链接普遍 24h 过期，拿到即下载转存为本地 blob URL；取消信号贯穿下载
-        const bytes = await client.download(image.url, {
+        const bytes = await client.download(proxyGatewayUrl(image.url, true), {
           signal: controller.signal,
         });
         if (bytes.byteLength === 0) {

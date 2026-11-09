@@ -6,6 +6,7 @@ import {
   type MediaModel,
 } from "newapi-media-client/config";
 import type { MediaGatewaySettings } from "../hooks/useAssets";
+import { proxyGatewayUrl } from "../dev-gateway-proxy";
 
 interface ActionToolbarProps {
   handleUpload: (files: FileList | null) => Promise<void> | void;
@@ -184,8 +185,17 @@ export const ActionToolbar = ({
                   type="text"
                   value={settings.baseUrl}
                   onInput={(e) => updateSettings({ baseUrl: (e.target as HTMLInputElement).value })}
-                  placeholder="http://localhost:3000"
+                  placeholder={`${window.location.origin}/gateway`}
                 />
+                <div
+                  style={{
+                    marginTop: "4px",
+                    fontSize: "0.72rem",
+                    color: "var(--text-secondary, #6b7280)",
+                  }}
+                >
+                  本地开发会把该网关的请求经 Vite 同源代理转发，绕开网关未开放跨域的限制。
+                </div>
               </div>
 
               <div class="setting-row">
@@ -208,7 +218,7 @@ export const ActionToolbar = ({
                   value={settings.imageModel}
                   onChange={(e) => updateSettings({ imageModel: (e.target as HTMLSelectElement).value })}
                 >
-                  <option value="">（先测试连接获取模型目录）</option>
+                  <option value="">（点“同步模型”拉取目录）</option>
                   {imageModels.length > 0 && (
                     <optgroup label="已声明生图能力">
                       {imageModels.map((model) => (
@@ -261,7 +271,10 @@ export const ActionToolbar = ({
                   onClick={() => {
                     setIsTesting(true);
                     setTestResult(null);
-                    void testConnection({ baseUrl: settings.baseUrl, apiKey: settings.token })
+                    void testConnection({
+                        baseUrl: proxyGatewayUrl(settings.baseUrl, false),
+                        apiKey: settings.token,
+                      })
                       .then((result) => {
                         setTestResult(result);
                         if (result.ok && result.models) {
@@ -288,7 +301,7 @@ export const ActionToolbar = ({
                       .finally(() => setIsTesting(false));
                   }}
                 >
-                  {isTesting ? '测试中…' : '测试连接'}
+                  {isTesting ? '同步中…' : '同步模型'}
                 </button>
                 <button
                   class="button button-primary"
