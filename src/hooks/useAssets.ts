@@ -546,6 +546,23 @@ export const useAssets = () => {
     savedPromptsRef.current = savedPrompts;
   }, [savedPrompts]);
 
+  // 长时间挂后台后 blob: 地址可能失效；用原文件/结果 Blob 重建地址即可恢复显示
+  const restoreAssetObjectUrl = (assetId: string, mode: "before" | "after") => {
+    setAssets((prev) =>
+      prev.map((item) => {
+        if (item.id !== assetId) return item;
+        if (mode === "after") {
+          if (!item.resultBlob) return item;
+          revokeResultUrl(item);
+          return { ...item, resultUrl: URL.createObjectURL(item.resultBlob) };
+        }
+        if (!item.uploadFile) return item;
+        if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl);
+        return { ...item, previewUrl: URL.createObjectURL(item.uploadFile) };
+      }),
+    );
+  };
+
   const revokeResultUrl = (asset: AssetItem) => {
     if (asset.resultUrl?.startsWith("blob:")) URL.revokeObjectURL(asset.resultUrl);
   };
@@ -1077,6 +1094,7 @@ export const useAssets = () => {
               ...item,
               status: "成功",
               resultUrl,
+              resultBlob,
               errorMessage: undefined,
             };
           }),
@@ -1374,6 +1392,7 @@ export const useAssets = () => {
     updateRule,
     setOcrTargetRule,
     applyOcrTextToTarget,
+    restoreAssetObjectUrl,
     updateNotes,
     insertRuleAfter,
     removeRule,

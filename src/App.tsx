@@ -21,6 +21,7 @@ export default function App() {
     updateRule,
     setOcrTargetRule,
     applyOcrTextToTarget,
+    restoreAssetObjectUrl,
     runCurrentOcr,
     toggleCurrentOcrVisibility,
     updateNotes,
@@ -58,6 +59,9 @@ export default function App() {
           onRunOcr={runCurrentOcr}
           onToggleOcrVisibility={toggleCurrentOcrVisibility}
           onSelectOcrText={applyOcrTextToTarget}
+          onRestoreImage={(mode) => {
+            if (currentAsset) restoreAssetObjectUrl(currentAsset.id, mode);
+          }}
         />
         <EditPanel
           assets={assets}

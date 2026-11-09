@@ -13,6 +13,7 @@ interface PreviewPanelProps {
   onRunOcr?: () => void;
   onToggleOcrVisibility?: () => void;
   onSelectOcrText?: (text: string) => void;
+  onRestoreImage?: (mode: "before" | "after") => void;
 }
 
 const fitPreviewFrame = (
@@ -47,6 +48,7 @@ export const PreviewPanel = ({
   onRunOcr,
   onToggleOcrVisibility,
   onSelectOcrText,
+  onRestoreImage,
 }: PreviewPanelProps) => {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -105,6 +107,7 @@ export const PreviewPanel = ({
   const failureIsMissingEndpoint = Boolean(currentAsset.errorMessage?.includes("404"));
   const displayUrl = previewMode === "after" ? currentAsset.resultUrl : currentAsset.previewUrl;
   const [imageFailed, setImageFailed] = useState(false);
+  const restoredForRef = useRef<string>("");
 
   useEffect(() => {
     setImageFailed(false);
@@ -279,7 +282,14 @@ export const PreviewPanel = ({
                 <img
                   src={displayUrl}
                   alt={currentAsset.name}
-                  onError={() => setImageFailed(true)}
+                  onError={() => {
+                    setImageFailed(true);
+                    // 同一地址只尝试恢复一次，避免坏图反复重建地址死循环
+                    const url = displayUrl ?? "";
+                    if (restoredForRef.current === url) return;
+                    restoredForRef.current = url;
+                    onRestoreImage?.(previewMode);
+                  }}
                   style={{
                     width: '100%',
                     height: '100%',
