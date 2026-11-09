@@ -31,9 +31,22 @@ export const resizeBlobToSize = async (
     const context = canvas.getContext("2d");
     if (!context) return null;
 
+    // 等比缩放后居中留白：直接拉伸会让文字变扁/变长，这里保证不变形
+    const scale = Math.min(width / bitmap.width, height / bitmap.height);
+    const drawWidth = Math.max(1, Math.round(bitmap.width * scale));
+    const drawHeight = Math.max(1, Math.round(bitmap.height * scale));
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(
+      bitmap,
+      Math.round((width - drawWidth) / 2),
+      Math.round((height - drawHeight) / 2),
+      drawWidth,
+      drawHeight,
+    );
 
     const resized = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, "image/png");

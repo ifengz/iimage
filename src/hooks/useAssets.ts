@@ -1056,7 +1056,7 @@ export const useAssets = () => {
           if (fitted) {
             resultBlob = fitted.blob;
             appendLog(
-              `尺寸已对齐原图：${fitted.fromWidth}×${fitted.fromHeight} → ${liveAsset.width}×${liveAsset.height}`,
+              `尺寸已对齐原图（等比缩放留白）：${fitted.fromWidth}×${fitted.fromHeight} → ${liveAsset.width}×${liveAsset.height}`,
             );
           }
         }
