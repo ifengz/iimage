@@ -13,6 +13,7 @@ import { createMediaClient } from "newapi-media-client";
 import { proxyGatewayUrl } from "../dev-gateway-proxy";
 import { generateImageWithChatCompletions } from "../chat-image-generator";
 import { resizeBlobToSize } from "../image-size";
+import { loadToken, saveToken } from "../gateway-profiles";
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -343,12 +344,7 @@ export const useAssets = () => {
     localStorage.removeItem("iimage-gateway");
     const persisted = loadMediaSettings();
     // 令牌只放本标签页：刷新保留，关标签页即清除，不写进长期存储
-    let tabToken = "";
-    try {
-      tabToken = sessionStorage.getItem("iimage-gateway-token") ?? "";
-    } catch {
-      tabToken = "";
-    }
+    const tabToken = persisted.baseUrl ? loadToken(persisted.baseUrl) : "";
     return {
       baseUrl: persisted.baseUrl,
       token: tabToken,
@@ -377,11 +373,7 @@ export const useAssets = () => {
       };
       // 只持久化非敏感配置；令牌只进 sessionStorage（本标签页）。
       // URL 非法时跳过持久化，由连接测试和生图请求把真实错误暴露给用户
-      try {
-        sessionStorage.setItem("iimage-gateway-token", next.token);
-      } catch {
-        /* 隐私模式禁用 sessionStorage 时忽略 */
-      }
+      saveToken(next.baseUrl, next.token);
       try {
         saveMediaSettings({
           baseUrl: next.baseUrl,

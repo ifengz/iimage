@@ -1,4 +1,12 @@
 import { fetchEndpointHints } from "../gateway-endpoints";
+import {
+  profileLabel,
+  loadProfiles,
+  loadToken,
+  removeProfile,
+  upsertProfile,
+  type GatewayProfile,
+} from "../gateway-profiles";
 import { useState, useEffect } from "preact/hooks";
 import {
   getModelChoices,
@@ -8,34 +16,6 @@ import {
 } from "newapi-media-client/config";
 import type { MediaGatewaySettings } from "../hooks/useAssets";
 import { proxyGatewayUrl } from "../dev-gateway-proxy";
-
-const MODEL_CACHE_KEY = "iimage-model-cache";
-
-type ModelCache = { baseUrl: string; models: MediaModel[]; hints: Record<string, string[]> };
-
-const readModelCache = (): ModelCache | null => {
-  try {
-    const raw = localStorage.getItem(MODEL_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ModelCache>;
-    if (typeof parsed.baseUrl !== "string" || !Array.isArray(parsed.models)) return null;
-    return {
-      baseUrl: parsed.baseUrl,
-      models: parsed.models,
-      hints: (parsed.hints as Record<string, string[]>) ?? {},
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writeModelCache = (cache: ModelCache) => {
-  try {
-    localStorage.setItem(MODEL_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    /* 存储已满或被禁用时忽略 */
-  }
-};
 
 const classifyModels = (models: MediaModel[], hints: Record<string, string[]>) => {
   const enriched = models.map((model) =>
@@ -79,21 +59,35 @@ export const ActionToolbar = ({
   const [imageModels, setImageModels] = useState<MediaModel[]>([]);
   const [endpointHints, setEndpointHints] = useState<Record<string, string[]>>({});
   const [unclassifiedModels, setUnclassifiedModels] = useState<MediaModel[]>([]);
+  const [profiles, setProfiles] = useState<GatewayProfile[]>(() => loadProfiles());
   const isChatOnly = (id: string) =>
     (endpointHints[id] ?? []).some((typeName) => typeName === "openai" || typeName === "gemini");
   const chatOnlyModels = unclassifiedModels.filter((model) => isChatOnly(model.id));
   const unknownModels = unclassifiedModels.filter((model) => !isChatOnly(model.id));
 
+  // 切换来源：地址、令牌、模型目录一起换
+  const applyProfile = (profile: GatewayProfile) => {
+    const choices = classifyModels(profile.models, profile.hints);
+    setEndpointHints(profile.hints);
+    setImageModels(choices.image);
+    setUnclassifiedModels(choices.unclassified);
+    setTestResult(null);
+    updateSettings({
+      baseUrl: profile.baseUrl,
+      token: loadToken(profile.baseUrl),
+      imageModel: profile.imageModel,
+    });
+  };
+
   // 上次同步过的模型目录直接回填，省得每次重测
   useEffect(() => {
-    const cache = readModelCache();
-    if (!cache || !settings.baseUrl || cache.baseUrl !== settings.baseUrl) return;
-    const choices = classifyModels(cache.models, cache.hints);
-    setEndpointHints(cache.hints);
+    const saved = loadProfiles().find((item) => item.baseUrl === settings.baseUrl);
+    if (!saved) return;
+    const choices = classifyModels(saved.models, saved.hints);
+    setEndpointHints(saved.hints);
     setImageModels(choices.image);
     setUnclassifiedModels(choices.unclassified);
   }, [settings.baseUrl]);
-
 
   const trigger = (name: string, fn: () => void) => {
     setActiveBtn(name);
@@ -299,6 +293,40 @@ export const ActionToolbar = ({
               </div>
 
               <div class="setting-row">
+                <label class="setting-label" htmlFor="settings-profile">网关配置</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <select
+                    id="settings-profile"
+                    class="setting-input"
+                    value={profiles.some((item) => item.baseUrl === settings.baseUrl) ? settings.baseUrl : ""}
+                    onChange={(e) => {
+                      const picked = profiles.find((item) => item.baseUrl === (e.target as HTMLSelectElement).value);
+                      if (picked) applyProfile(picked);
+                    }}
+                  >
+                    <option value="">（当前输入的地址）</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.baseUrl} value={profile.baseUrl}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    class="button"
+                    type="button"
+                    style={{ height: "36px", whiteSpace: "nowrap" }}
+                    disabled={!profiles.some((item) => item.baseUrl === settings.baseUrl)}
+                    onClick={() => setProfiles(removeProfile(settings.baseUrl))}
+                  >
+                    删除
+                  </button>
+                </div>
+                <div style={{ marginTop: "4px", fontSize: "0.72rem", color: "var(--text-secondary, #6b7280)" }}>
+                  同步过的网关会自动存成一组，换组即切换地址、令牌与模型目录。
+                </div>
+              </div>
+
+              <div class="setting-row">
                 <label class="setting-label" htmlFor="settings-gateway-url">网关地址</label>
                 <input
                   id="settings-gateway-url"
@@ -424,7 +452,16 @@ export const ActionToolbar = ({
                           () => ({}) as Record<string, string[]>,
                         );
                         const choices = classifyModels(result.models, hints);
-                        writeModelCache({ baseUrl: settings.baseUrl, models: result.models, hints });
+                        setProfiles(
+                          upsertProfile({
+                            baseUrl: settings.baseUrl,
+                            label: profileLabel(settings.baseUrl),
+                            imageModel: settings.imageModel,
+                            models: result.models,
+                            hints,
+                            updatedAt: Date.now(),
+                          }),
+                        );
                         // 结果与模型列表一起提交，避免“已获取”先出现、下拉还空一瞬
                         setTestResult(result);
                         setEndpointHints(hints);
