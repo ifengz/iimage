@@ -42,6 +42,11 @@ export const ActionToolbar = ({
   const [imageModels, setImageModels] = useState<MediaModel[]>([]);
   const [endpointHints, setEndpointHints] = useState<Record<string, string[]>>({});
   const [unclassifiedModels, setUnclassifiedModels] = useState<MediaModel[]>([]);
+  const isChatOnly = (id: string) =>
+    (endpointHints[id] ?? []).some((typeName) => typeName === "openai" || typeName === "gemini");
+  const chatOnlyModels = unclassifiedModels.filter((model) => isChatOnly(model.id));
+  const unknownModels = unclassifiedModels.filter((model) => !isChatOnly(model.id));
+
 
   const trigger = (name: string, fn: () => void) => {
     setActiveBtn(name);
@@ -298,9 +303,16 @@ export const ActionToolbar = ({
                       ))}
                     </optgroup>
                   )}
-                  {unclassifiedModels.length > 0 && (
+                  {chatOnlyModels.length > 0 && (
+                    <optgroup label="仅聊天接口（出图会重画版面）">
+                      {chatOnlyModels.map((model) => (
+                        <option key={model.id} value={model.id}>{model.id}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {unknownModels.length > 0 && (
                     <optgroup label="⚠ 未声明生图能力（网关未发布元数据，需自行确认）">
-                      {unclassifiedModels.map((model) => (
+                      {unknownModels.map((model) => (
                         <option key={model.id} value={model.id}>{model.id}</option>
                       ))}
                     </optgroup>
@@ -352,32 +364,40 @@ export const ActionToolbar = ({
                         baseUrl: proxyGatewayUrl(settings.baseUrl, false),
                         apiKey: settings.token,
                       })
-                      .then((result) => {
-                        setTestResult(result);
-                        if (result.ok) {
-                          void fetchEndpointHints(settings.baseUrl)
-                            .then(setEndpointHints)
-                            .catch(() => setEndpointHints({}));
-                        }
-                        if (result.ok && result.models) {
-                          const choices = getModelChoices(result.models);
-                          setImageModels(choices.image);
-                          setUnclassifiedModels(choices.unclassified);
-                          const reconciled = reconcileMediaSettings(
-                            {
-                              baseUrl: settings.baseUrl,
-                              analysisModel: "",
-                              imageModel: settings.imageModel,
-                              imageSize: settings.imageSize,
-                            },
-                            choices,
-                          );
-                          if (reconciled.imageModel !== settings.imageModel) {
-                            updateSettings({ imageModel: reconciled.imageModel });
-                          }
-                        } else {
+                      .then(async (result) => {
+                        if (!result.ok || !result.models) {
+                          setTestResult(result);
                           setImageModels([]);
                           setUnclassifiedModels([]);
+                          setEndpointHints({});
+                          return;
+                        }
+                        // /v1/models 常常不带能力字段，再用免费的 /api/pricing 补一遍
+                        const hints = await fetchEndpointHints(settings.baseUrl).catch(
+                          () => ({}) as Record<string, string[]>,
+                        );
+                        const enriched = result.models.map((model) =>
+                          model.supported_endpoint_types?.length || !hints[model.id]
+                            ? model
+                            : { ...model, supported_endpoint_types: hints[model.id] },
+                        );
+                        const choices = getModelChoices(enriched);
+                        // 结果与模型列表一起提交，避免“已获取”先出现、下拉还空一瞬
+                        setTestResult(result);
+                        setEndpointHints(hints);
+                        setImageModels(choices.image);
+                        setUnclassifiedModels(choices.unclassified);
+                        const reconciled = reconcileMediaSettings(
+                          {
+                            baseUrl: settings.baseUrl,
+                            analysisModel: "",
+                            imageModel: settings.imageModel,
+                            imageSize: settings.imageSize,
+                          },
+                          choices,
+                        );
+                        if (reconciled.imageModel !== settings.imageModel) {
+                          updateSettings({ imageModel: reconciled.imageModel });
                         }
                       })
                       .finally(() => setIsTesting(false));
@@ -417,7 +437,16 @@ export const ActionToolbar = ({
                 </div>
               )}
 
-              {settings.imageModel && unclassifiedModels.some((model) => model.id === settings.imageModel) && (
+              {settings.imageModel && chatOnlyModels.some((model) => model.id === settings.imageModel) && (
+                <div
+                  role="note"
+                  style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--text-secondary, #6b7280)' }}
+                >
+                  该模型未声明图片接口，会走聊天接口出图：版式可能被重画、尺寸按模型自己决定。
+                </div>
+              )}
+
+              {settings.imageModel && unknownModels.some((model) => model.id === settings.imageModel) && (
                 <div
                   role="note"
                   style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}
@@ -426,12 +455,21 @@ export const ActionToolbar = ({
                 </div>
               )}
 
-              {unclassifiedModels.length > 0 && (
+              {unknownModels.length > 0 && (
                 <div
                   role="status"
                   style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}
                 >
-                  {unclassifiedModels.length} 个模型未声明生图能力，已放入下拉的警示分组，是否可用请自行确认。
+                  {unknownModels.length} 个模型未声明生图能力，已放入下拉的警示分组，是否可用请自行确认。
+                </div>
+              )}
+
+              {chatOnlyModels.length > 0 && (
+                <div
+                  role="status"
+                  style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--text-secondary, #6b7280)' }}
+                >
+                  {chatOnlyModels.length} 个模型只开放聊天接口：能出图，但会重新画整张版面。
                 </div>
               )}
             </div>
