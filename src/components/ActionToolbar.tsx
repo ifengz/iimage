@@ -60,10 +60,23 @@ export const ActionToolbar = ({
   const [endpointHints, setEndpointHints] = useState<Record<string, string[]>>({});
   const [unclassifiedModels, setUnclassifiedModels] = useState<MediaModel[]>([]);
   const [profiles, setProfiles] = useState<GatewayProfile[]>(() => loadProfiles());
+  const [nameDraft, setNameDraft] = useState("");
   const isChatOnly = (id: string) =>
     (endpointHints[id] ?? []).some((typeName) => typeName === "openai" || typeName === "gemini");
   const chatOnlyModels = unclassifiedModels.filter((model) => isChatOnly(model.id));
   const unknownModels = unclassifiedModels.filter((model) => !isChatOnly(model.id));
+
+  const activeProfile = profiles.find((item) => item.baseUrl === settings.baseUrl);
+  useEffect(() => {
+    setNameDraft(activeProfile?.label ?? "");
+  }, [settings.baseUrl, profiles]);
+
+  const renameActiveProfile = () => {
+    if (!activeProfile) return;
+    const label = nameDraft.trim();
+    if (!label || label === activeProfile.label) return;
+    setProfiles(upsertProfile({ ...activeProfile, label, updatedAt: Date.now() }));
+  };
 
   // 切换来源：地址、令牌、模型目录一起换
   const applyProfile = (profile: GatewayProfile) => {
@@ -311,11 +324,21 @@ export const ActionToolbar = ({
                       </option>
                     ))}
                   </select>
+                  <input
+                    id="settings-profile-name"
+                    class="setting-input"
+                    style={{ maxWidth: "180px" }}
+                    placeholder="配置名称"
+                    value={nameDraft}
+                    disabled={!activeProfile}
+                    onInput={(e) => setNameDraft((e.target as HTMLInputElement).value)}
+                    onBlur={renameActiveProfile}
+                  />
                   <button
                     class="button"
                     type="button"
                     style={{ height: "36px", whiteSpace: "nowrap" }}
-                    disabled={!profiles.some((item) => item.baseUrl === settings.baseUrl)}
+                    disabled={!activeProfile}
                     onClick={() => setProfiles(removeProfile(settings.baseUrl))}
                   >
                     删除
