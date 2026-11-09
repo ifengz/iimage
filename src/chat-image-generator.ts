@@ -100,9 +100,10 @@ export const generateImageWithChatCompletions = async ({
 
   if (!response.ok) {
     const message = asRecord(asRecord(payload)?.error)?.message;
+    const bodyText = typeof message === "string" && message ? message : rawText.slice(0, 200).trim();
     throw new Error(
-      typeof message === "string" && message
-        ? `网关请求失败 HTTP ${response.status}：${message}`
+      bodyText
+        ? `网关请求失败 HTTP ${response.status}：${bodyText}`
         : `网关请求失败 HTTP ${response.status}`,
     );
   }

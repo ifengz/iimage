@@ -161,8 +161,10 @@ const deriveStatus = (asset: AssetItem, savedPrompt?: string): AssetStatus => {
 
 const isImagesEndpointMissing = (error: unknown) => {
   const status = (error as { status?: unknown } | null)?.status;
-  if (status === 404) return true;
-  return /HTTP 404/.test(String((error as { message?: unknown } | null)?.message ?? ""));
+  // 404：网关根本不提供 images 接口；5xx：网关到上游的图片接口失败（常见于只转聊天接口的中转站）
+  if (typeof status === "number" && (status === 404 || status >= 500)) return true;
+  const message = String((error as { message?: unknown } | null)?.message ?? "");
+  return /HTTP (404|5\d\d)/.test(message);
 };
 
 const buildInitialPrompts = (assets: AssetItem[]) =>
