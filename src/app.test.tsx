@@ -4,30 +4,31 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { act } from "preact/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const googleAiMocks = vi.hoisted(() => {
-  const generateContentMock = vi.fn();
-  const getGenerativeModelMock = vi.fn(() => ({
-    generateContent: generateContentMock,
-  }));
-  const GoogleGenerativeAIMock = vi.fn(() => ({
-    getGenerativeModel: getGenerativeModelMock,
-  }));
+const mediaMocks = vi.hoisted(() => {
+  const generateImageMock = vi.fn();
+  const downloadMock = vi.fn();
+  const createMediaClientMock = vi.fn();
 
   return {
-    generateContentMock,
-    getGenerativeModelMock,
-    GoogleGenerativeAIMock,
+    generateImageMock,
+    downloadMock,
+    createMediaClientMock,
   };
 });
 
 const {
-  generateContentMock,
-  getGenerativeModelMock,
-  GoogleGenerativeAIMock,
-} = googleAiMocks;
+  generateImageMock,
+  downloadMock,
+  createMediaClientMock,
+} = mediaMocks;
 
-vi.mock("@google/generative-ai", () => ({
-  GoogleGenerativeAI: googleAiMocks.GoogleGenerativeAIMock,
+// 只 mock 传输入口（createMediaClient）；config 模块（设置持久化、模型目录分类、
+// testConnection）保持真实实现，测试里仅 stub fetch
+vi.mock("newapi-media-client", () => ({
+  createMediaClient: mediaMocks.createMediaClientMock,
+  MediaError: class MediaError extends Error {
+    retryable = false;
+  },
 }));
 
 import { type AssetItem, getRuntimeSeedAssets } from "./data/mock";
@@ -87,6 +88,7 @@ const createAssetFixture = (overrides: Partial<AssetItem> = {}): AssetItem => ({
   height: overrides.height ?? 900,
   previewUrl: overrides.previewUrl ?? "blob:fixture-preview.png",
   uploadPreviewUrl: overrides.uploadPreviewUrl,
+  uploadFile: overrides.uploadFile,
   resultUrl: overrides.resultUrl,
   notes: overrides.notes ?? "",
   rules: overrides.rules ?? [
@@ -114,16 +116,29 @@ function HookHarness() {
 describe("useAssets batch behavior", () => {
   beforeEach(() => {
     latestApi = undefined as never;
-    generateContentMock.mockReset();
-    getGenerativeModelMock.mockClear();
-    GoogleGenerativeAIMock.mockClear();
+    generateImageMock.mockReset();
+    downloadMock.mockReset();
+    createMediaClientMock.mockReset();
 
     vi.restoreAllMocks();
+
+    // jsdom has no canvas engine. Default to the supported no-canvas path;
+    // compression-boundary cases below provide the encoder result explicitly.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+
+    createMediaClientMock.mockImplementation(() => ({
+      generateImage: generateImageMock,
+      download: downloadMock,
+    }));
+
+    downloadMock.mockImplementation(async () => new Uint8Array([1, 2, 3]));
+
+    localStorage.clear();
 
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
       writable: true,
-      value: vi.fn((file: File) => `blob:${file.name}`),
+      value: vi.fn((source: { name?: string }) => `blob:${source?.name ?? "result"}`),
     });
 
     Object.defineProperty(URL, "revokeObjectURL", {
@@ -379,25 +394,9 @@ describe("useAssets batch behavior", () => {
   });
 
   it("treats B zone edits as ready and still lets C zone save override the outgoing prompt", async () => {
-    generateContentMock.mockResolvedValue({
-      response: {
-        candidates: [
-          {
-            index: 0,
-            content: {
-              role: "model",
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: "image/png",
-                    data: "R0lGODlhAQABAAAAACw=",
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
+    generateImageMock.mockResolvedValue({
+      url: "https://gateway.example/tmp/result.png",
+      model: "nano-banana-2",
     });
 
     render(<HookHarness />);
@@ -429,23 +428,36 @@ describe("useAssets batch behavior", () => {
     });
 
     await act(async () => {
-      latestApi.updateSettings({ apiKeys: "demo-key", parallelLimit: 1 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "demo-key", imageModel: "nano-banana-2", parallelLimit: 1 });
       latestApi.setSelectedIds([latestApi.currentAsset!.id]);
     });
 
     await waitFor(() => {
-      expect(latestApi.settings.apiKeys).toBe("demo-key");
+      expect(latestApi.settings.token).toBe("demo-key");
     });
 
     await act(async () => {
       await latestApi.startBatch();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(createMediaClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "http://gw.test",
+        key: "demo-key",
+        imageModel: "nano-banana-2",
+      }),
+    );
 
-    const [firstRequest] = generateContentMock.mock.calls[0] ?? [];
-    expect(firstRequest[0]).toContain('Replace "(empty)" with "Launch Week"');
-    expect(firstRequest[0]).toContain("Do not create a side-by-side comparison");
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
+
+    const [firstPrompt, firstOpts] = generateImageMock.mock.calls[0] ?? [];
+    expect(firstPrompt).toContain('Replace "(empty)" with "Launch Week"');
+    expect(firstPrompt).toContain("Do not create a side-by-side comparison");
+    expect(firstOpts).toMatchObject({
+      model: "nano-banana-2",
+      size: "1536x1024",
+    });
+    expect(firstOpts.images[0]).toMatch(/^data:/);
 
     await act(async () => {
       latestApi.setPromptDraft("Use this exact custom prompt.");
@@ -460,7 +472,7 @@ describe("useAssets batch behavior", () => {
       await latestApi.startBatch();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
       expect(latestApi.batchMessage).toBe("C区内容改了但还没保存，请先点保存。");
@@ -478,20 +490,19 @@ describe("useAssets batch behavior", () => {
       await latestApi.startBatch();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    expect(generateImageMock).toHaveBeenCalledTimes(2);
 
-    const [request] = generateContentMock.mock.calls[1] ?? [];
-    expect(request[0]).toBe("Use this exact custom prompt.");
-    expect(request[1]).toMatchObject({
-      inlineData: {
-        mimeType: "image/jpeg",
-      },
-    });
+    const [prompt] = generateImageMock.mock.calls[1] ?? [];
+    expect(prompt).toBe("Use this exact custom prompt.");
+
+    // G5：结果 URL 已 download 转存为本地 blob，不存渠道链接；取消信号贯穿到下载
+    expect(downloadMock).toHaveBeenCalledWith(
+      "https://gateway.example/tmp/result.png",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
 
     const processedAsset = latestApi.assets.find((asset) => asset.name === "cover.jpg");
-    expect(processedAsset?.resultUrl).toBe(
-      "data:image/png;base64,R0lGODlhAQABAAAAACw=",
-    );
+    expect(processedAsset?.resultUrl).toBe("blob:result");
     expect(processedAsset?.resultUrl).not.toBe(processedAsset?.previewUrl);
     expect(processedAsset?.status).toBe("成功");
   });
@@ -528,26 +539,140 @@ describe("useAssets batch behavior", () => {
     });
   });
 
+  it.each<[string, (api: AssetsApi) => void]>([
+    ["rule edit", (api) => api.updateRule("fixture-rule-1", "targetText", "New text")],
+    ["OCR text", (api) => api.applyOcrTextToTarget("New OCR text")],
+    ["notes edit", (api) => api.updateNotes("New notes")],
+    ["rule insertion", (api) => api.insertRuleAfter("fixture-rule-1")],
+    ["rule removal", (api) => api.removeRule("fixture-rule-1")],
+    ["clear current", (api) => api.clearCurrent()],
+    ["save prompt", (api) => api.savePrompt()],
+    ["restore prompt", (api) => api.restoreGeneratedPrompt()],
+  ])("releases the old result blob after %s without releasing retained images", async (_name, edit) => {
+    render(<HookHarness />);
+    const asset = createAssetFixture({
+      id: "finished-with-blob",
+      resultUrl: "blob:old-result",
+      uploadPreviewUrl: "blob:original",
+      status: "成功",
+    });
+    const retained = createAssetFixture({ id: "retained", resultUrl: "blob:retained-result" });
+    await act(async () => {
+      latestApi.setAssets([asset, retained]);
+      latestApi.setSelectedId(asset.id);
+    });
+    await act(async () => { edit(latestApi); });
+    expect(latestApi.assets[0].resultUrl).toBeUndefined();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:old-result");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:original");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:retained-result");
+  });
+
+  it("releases both original and result blobs when clearing all images", async () => {
+    render(<HookHarness />);
+    await act(async () => {
+      latestApi.setAssets([createAssetFixture({
+        uploadPreviewUrl: "blob:original",
+        resultUrl: "blob:old-result",
+      })]);
+    });
+    await act(async () => { latestApi.clearAllImages(); });
+    expect(latestApi.assets).toEqual([]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:original");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:old-result");
+  });
+
+  it("rejects an encoded reference that remains over 2MB after compression", async () => {
+    generateImageMock.mockResolvedValue({ url: "https://gateway.example/result.png", model: "test-model" });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/jpeg;base64," + "A".repeat(2 * 1024 * 1024),
+    );
+    render(<HookHarness />);
+    const asset = createAssetFixture({
+      id: "oversized-reference",
+      status: "就绪",
+      uploadFile: new File(["source"], "source.png", { type: "image/png" }),
+    });
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+      latestApi.setSelectedIds([asset.id]);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "test-key", imageModel: "test-model" });
+    });
+    await act(async () => { await latestApi.startBatch(); });
+    expect(latestApi.assets[0].status).toBe("失败");
+    expect(latestApi.assets[0].errorMessage).toContain("2MB");
+    expect(generateImageMock).not.toHaveBeenCalled();
+  });
+
+  it("applies the encoded reference limit even without canvas support", async () => {
+    generateImageMock.mockResolvedValue({ url: "https://gateway.example/result.png", model: "test-model" });
+    render(<HookHarness />);
+    const asset = createAssetFixture({
+      id: "oversized-base64",
+      status: "就绪",
+      uploadFile: new File([new Uint8Array(1600 * 1024)], "source.png", { type: "image/png" }),
+    });
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+      latestApi.setSelectedIds([asset.id]);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "test-key", imageModel: "test-model" });
+    });
+    await act(async () => { await latestApi.startBatch(); });
+    expect(latestApi.assets[0].status).toBe("失败");
+    expect(latestApi.assets[0].errorMessage).toContain("2MB");
+    expect(generateImageMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["empty", "undecodable"])("rejects %s downloaded image results instead of reporting success", async (kind) => {
+    generateImageMock.mockResolvedValue({ url: "https://gateway.example/result.png", model: "test-model" });
+    downloadMock.mockResolvedValue(
+      kind === "empty" ? new Uint8Array() : new TextEncoder().encode("<html>expired link</html>"),
+    );
+    if (kind === "undecodable") {
+      class ResultDecodeImage {
+        width = 100;
+        height = 100;
+        naturalWidth = 100;
+        naturalHeight = 100;
+        onload: null | (() => void) = null;
+        onerror: null | (() => void) = null;
+        set src(value: string) {
+          queueMicrotask(() => value === "blob:result" ? this.onerror?.() : this.onload?.());
+        }
+      }
+      vi.stubGlobal("Image", ResultDecodeImage);
+    }
+    render(<HookHarness />);
+    const asset = createAssetFixture({
+      id: "invalid-result",
+      status: "就绪",
+      uploadFile: new File(["source"], "source.png", { type: "image/png" }),
+    });
+    await act(async () => {
+      latestApi.setAssets([asset]);
+      latestApi.setSelectedId(asset.id);
+      latestApi.setSelectedIds([asset.id]);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "test-key", imageModel: "test-model" });
+    });
+    await act(async () => { await latestApi.startBatch(); });
+    expect(latestApi.assets[0].status).toBe("失败");
+    expect(latestApi.assets[0].resultUrl).toBeUndefined();
+    expect(latestApi.assets[0].errorMessage).toContain("结果");
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
+    if (kind === "undecodable") {
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:result");
+    }
+  });
+
   it("requires checked images before starting a batch", async () => {
-    generateContentMock.mockResolvedValue({
-      response: {
-        candidates: [
-          {
-            index: 0,
-            content: {
-              role: "model",
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: "image/png",
-                    data: "R0lGODlhAQABAAAAACw=",
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
+    generateImageMock.mockResolvedValue({
+      url: "https://gateway.example/tmp/result.png",
+      model: "nano-banana-2",
     });
 
     render(<HookHarness />);
@@ -572,14 +697,14 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets([readyAsset]);
       latestApi.setSelectedId(readyAsset.id);
       latestApi.setSelectedIds([]);
-      latestApi.updateSettings({ apiKeys: "demo-key", parallelLimit: 1 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "demo-key", imageModel: "nano-banana-2", parallelLimit: 1 });
     });
 
     await act(async () => {
       await latestApi.startBatch();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(0);
+    expect(generateImageMock).toHaveBeenCalledTimes(0);
     await waitFor(() => {
       expect(latestApi.batchMessage).toBe("请先勾选要生成的图片。");
     });
@@ -596,13 +721,13 @@ describe("useAssets batch behavior", () => {
       await latestApi.startBatch();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps unselected ready images out of the processing state when a batch starts", async () => {
-    const pendingJob = deferred<{ response: object }>();
+    const pendingJob = deferred<{ url: string; model: string }>();
 
-    generateContentMock.mockImplementation(() => pendingJob.promise);
+    generateImageMock.mockImplementation(() => pendingJob.promise);
 
     render(<HookHarness />);
 
@@ -642,7 +767,7 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets([selectedAsset, untouchedAsset]);
       latestApi.setSelectedId(selectedAsset.id);
       latestApi.setSelectedIds([selectedAsset.id]);
-      latestApi.updateSettings({ apiKeys: "demo-key", parallelLimit: 1 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "demo-key", imageModel: "nano-banana-2", parallelLimit: 1 });
     });
 
     await act(async () => {
@@ -651,7 +776,7 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(1);
+      expect(generateImageMock).toHaveBeenCalledTimes(1);
     });
 
     expect(
@@ -664,11 +789,11 @@ describe("useAssets batch behavior", () => {
     pendingJob.reject(new Error("stop pending work"));
   });
 
-  it("starts multiple Gemini requests in parallel up to the configured limit", async () => {
-    const pendingCalls: Array<Deferred<{ response: object }>> = [];
+  it("starts multiple gateway requests in parallel up to the configured limit", async () => {
+    const pendingCalls: Array<Deferred<{ url: string; model: string }>> = [];
 
-    generateContentMock.mockImplementation(() => {
-      const job = deferred<{ response: object }>();
+    generateImageMock.mockImplementation(() => {
+      const job = deferred<{ url: string; model: string }>();
       pendingCalls.push(job);
       return job.promise;
     });
@@ -698,11 +823,11 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets(readyAssets);
       latestApi.setSelectedId(readyAssets[0].id);
       latestApi.setSelectedIds(readyAssets.map((asset) => asset.id));
-      latestApi.updateSettings({ apiKeys: "key-a", parallelLimit: 2 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "key-a", imageModel: "nano-banana-2", parallelLimit: 2 });
     });
 
     await waitFor(() => {
-      expect(latestApi.settings.apiKeys).toBe("key-a");
+      expect(latestApi.settings.token).toBe("key-a");
     });
 
     for (const asset of readyAssets) {
@@ -725,36 +850,27 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(2);
+      expect(generateImageMock).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {
       pendingCalls[0].resolve({
-        response: {
-          candidates: [
-            {
-              index: 0,
-              content: {
-                role: "model",
-                parts: [{ inlineData: { mimeType: "image/png", data: "Zmlyc3Q=" } }],
-              },
-            },
-          ],
-        },
+        url: "https://gateway.example/tmp/first.png",
+        model: "nano-banana-2",
       });
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(3);
+      expect(generateImageMock).toHaveBeenCalledTimes(3);
     });
   });
 
   it("stops receiving results and stops launching queued work after cancel", async () => {
-    const pendingCalls: Array<Deferred<{ response: object }>> = [];
+    const pendingCalls: Array<Deferred<{ url: string; model: string }>> = [];
 
-    generateContentMock.mockImplementation(() => {
-      const job = deferred<{ response: object }>();
+    generateImageMock.mockImplementation(() => {
+      const job = deferred<{ url: string; model: string }>();
       pendingCalls.push(job);
       return job.promise;
     });
@@ -784,11 +900,11 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets(readyAssets);
       latestApi.setSelectedId(readyAssets[0].id);
       latestApi.setSelectedIds(readyAssets.map((asset) => asset.id));
-      latestApi.updateSettings({ apiKeys: "key-a", parallelLimit: 2 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "key-a", imageModel: "nano-banana-2", parallelLimit: 2 });
     });
 
     await waitFor(() => {
-      expect(latestApi.settings.apiKeys).toBe("key-a");
+      expect(latestApi.settings.token).toBe("key-a");
     });
 
     await act(async () => {
@@ -797,7 +913,7 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(2);
+      expect(generateImageMock).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {
@@ -806,47 +922,29 @@ describe("useAssets batch behavior", () => {
 
     await act(async () => {
       pendingCalls[0].resolve({
-        response: {
-          candidates: [
-            {
-              index: 0,
-              content: {
-                role: "model",
-                parts: [{ inlineData: { mimeType: "image/png", data: "b25l" } }],
-              },
-            },
-          ],
-        },
+        url: "https://gateway.example/tmp/one.png",
+        model: "nano-banana-2",
       });
       pendingCalls[1].resolve({
-        response: {
-          candidates: [
-            {
-              index: 0,
-              content: {
-                role: "model",
-                parts: [{ inlineData: { mimeType: "image/png", data: "dHdv" } }],
-              },
-            },
-          ],
-        },
+        url: "https://gateway.example/tmp/two.png",
+        model: "nano-banana-2",
       });
       await Promise.resolve();
     });
 
-    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    expect(generateImageMock).toHaveBeenCalledTimes(2);
     expect(latestApi.stats.running).toBe(0);
     expect(latestApi.stats.success).toBe(0);
   });
 
   it("aborts in-flight requests when clearing all images", async () => {
     const requestSignals: AbortSignal[] = [];
-    const pendingCalls: Array<Deferred<{ response: object }>> = [];
+    const pendingCalls: Array<Deferred<{ url: string; model: string }>> = [];
 
-    generateContentMock.mockImplementation((_request, requestOptions?: { signal?: AbortSignal }) => {
-      const job = deferred<{ response: object }>();
+    generateImageMock.mockImplementation((_prompt, opts?: { signal?: AbortSignal }) => {
+      const job = deferred<{ url: string; model: string }>();
       pendingCalls.push(job);
-      requestSignals.push(requestOptions?.signal as AbortSignal);
+      requestSignals.push(opts?.signal as AbortSignal);
       return job.promise;
     });
 
@@ -866,7 +964,7 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets(readyAssets);
       latestApi.setSelectedId(readyAssets[0].id);
       latestApi.setSelectedIds(readyAssets.map((asset) => asset.id));
-      latestApi.updateSettings({ apiKeys: "key-a", parallelLimit: 2 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "key-a", imageModel: "nano-banana-2", parallelLimit: 2 });
     });
 
     await act(async () => {
@@ -875,7 +973,7 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(2);
+      expect(generateImageMock).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {
@@ -888,9 +986,9 @@ describe("useAssets batch behavior", () => {
   });
 
   it("calculates progress from the current batch instead of historical successes", async () => {
-    const pendingJob = deferred<{ response: object }>();
+    const pendingJob = deferred<{ url: string; model: string }>();
 
-    generateContentMock.mockImplementation(() => pendingJob.promise);
+    generateImageMock.mockImplementation(() => pendingJob.promise);
 
     render(<HookHarness />);
 
@@ -921,7 +1019,7 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets([previousSuccess, readyAsset]);
       latestApi.setSelectedId(readyAsset.id);
       latestApi.setSelectedIds([readyAsset.id]);
-      latestApi.updateSettings({ apiKeys: "key-a", parallelLimit: 1 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "key-a", imageModel: "nano-banana-2", parallelLimit: 1 });
     });
 
     await act(async () => {
@@ -930,17 +1028,17 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(1);
+      expect(generateImageMock).toHaveBeenCalledTimes(1);
     });
 
     expect(latestApi.stats.progress).toBe(0);
   });
 
-  it("caps parallel work at ten requests and uses the selected model", async () => {
-    const pendingCalls: Array<Deferred<{ response: object }>> = [];
+  it("caps parallel work at ten requests and uses the gateway model", async () => {
+    const pendingCalls: Array<Deferred<{ url: string; model: string }>> = [];
 
-    generateContentMock.mockImplementation(() => {
-      const job = deferred<{ response: object }>();
+    generateImageMock.mockImplementation(() => {
+      const job = deferred<{ url: string; model: string }>();
       pendingCalls.push(job);
       return job.promise;
     });
@@ -970,10 +1068,11 @@ describe("useAssets batch behavior", () => {
       latestApi.setSelectedId(readyAssets[0].id);
       latestApi.setSelectedIds(readyAssets.map((asset) => asset.id));
       latestApi.updateSettings({
-        apiKeys: "key-a\nkey-b",
+        baseUrl: "http://gw.test",
+        token: "key-a",
+        imageModel: "nano-banana-2",
         parallelLimit: 99,
-        model: "models/gemini-2.5-flash-image",
-      } as never);
+      });
     });
 
     await act(async () => {
@@ -982,16 +1081,12 @@ describe("useAssets batch behavior", () => {
     });
 
     await waitFor(() => {
-      expect(generateContentMock).toHaveBeenCalledTimes(10);
+      expect(generateImageMock).toHaveBeenCalledTimes(10);
     });
 
-    expect(getGenerativeModelMock).toHaveBeenCalledTimes(10);
-    const modelConfigs = getGenerativeModelMock.mock.calls as unknown as Array<
-      [{ model: string }]
-    >;
     expect(
-      modelConfigs.every(
-        ([config]) => config?.model === "models/gemini-2.5-flash-image",
+      generateImageMock.mock.calls.every(
+        ([, opts]) => (opts as { model?: string })?.model === "nano-banana-2",
       ),
     ).toBe(true);
 
@@ -999,9 +1094,9 @@ describe("useAssets batch behavior", () => {
   });
 
   it("exposes the live batch phase while a selected image is still running", async () => {
-    const pendingJob = deferred<{ response: object }>();
+    const pendingJob = deferred<{ url: string; model: string }>();
 
-    generateContentMock.mockImplementation(() => pendingJob.promise);
+    generateImageMock.mockImplementation(() => pendingJob.promise);
 
     render(<HookHarness />);
 
@@ -1025,7 +1120,7 @@ describe("useAssets batch behavior", () => {
       latestApi.setAssets([readyAsset]);
       latestApi.setSelectedId(readyAsset.id);
       latestApi.setSelectedIds([readyAsset.id]);
-      latestApi.updateSettings({ apiKeys: "phase-key", parallelLimit: 1 } as never);
+      latestApi.updateSettings({ baseUrl: "http://gw.test", token: "phase-key", imageModel: "nano-banana-2", parallelLimit: 1 });
     });
 
     await act(async () => {
@@ -1039,17 +1134,8 @@ describe("useAssets batch behavior", () => {
 
     await act(async () => {
       pendingJob.resolve({
-        response: {
-          candidates: [
-            {
-              index: 0,
-              content: {
-                role: "model",
-                parts: [{ inlineData: { mimeType: "image/png", data: "cGhhc2U=" } }],
-              },
-            },
-          ],
-        },
+        url: "https://gateway.example/tmp/phase.png",
+        model: "nano-banana-2",
       });
       await Promise.resolve();
     });
@@ -1691,8 +1777,99 @@ describe("UI safeguards", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
 
-    expect(screen.getByLabelText("Gemini Model")).toBeInTheDocument();
+    expect(screen.getByLabelText("网关地址")).toBeInTheDocument();
+    expect(screen.getByLabelText("网关令牌")).toBeInTheDocument();
+    expect(screen.getByLabelText("生图模型")).toBeInTheDocument();
     expect(screen.getByLabelText("并行数")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "测试连接" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("仅本地开发使用");
+  });
+
+  it("tests the gateway connection from the settings modal and shows the result", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({ data: [{ id: "nano-banana-2" }, { id: "seedream-4.0" }] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
+    fireEvent.input(screen.getByLabelText("网关地址"), {
+      target: { value: "http://localhost:3000" },
+    });
+    fireEvent.input(screen.getByLabelText("网关令牌"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/已获取 2 个模型/)).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/v1/models",
+      expect.objectContaining({
+        headers: { authorization: "Bearer sk-test" },
+      }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("lists unclassified models in a warning group instead of dropping them", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            { id: "img-model", supported_endpoint_types: ["image-generation"] },
+            { id: "mystery-model", owned_by: "unknown" },
+          ],
+        }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
+    fireEvent.input(screen.getByLabelText("网关地址"), {
+      target: { value: "http://localhost:3000" },
+    });
+    fireEvent.input(screen.getByLabelText("网关令牌"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/已获取 2 个模型/)).toBeInTheDocument();
+    });
+
+    const modelSelect = screen.getByLabelText("生图模型") as HTMLSelectElement;
+    const options = Array.from(modelSelect.options).map((option) => option.value);
+
+    // 已声明模型进常规分组；未声明模型保留在警示分组中（不自动选中，不静默丢弃）
+    expect(options).toContain("img-model");
+    expect(options).toContain("mystery-model");
+    expect(modelSelect.value).toBe("");
+    expect(screen.getByText(/1 个模型未声明生图能力/)).toBeInTheDocument();
+
+    // 用户手动选择未声明模型后给出警示提示
+    fireEvent.change(modelSelect, { target: { value: "mystery-model" } });
+    expect(screen.getByText(/当前模型未声明生图能力/)).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("prompts for missing gateway fields when testing connection", async () => {
+    localStorage.clear();
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/请先填写 Base URL 和 API Key/)).toBeInTheDocument();
+    });
   });
 
   it("keeps only one save button after removing B zone save", () => {
@@ -1705,7 +1882,7 @@ describe("UI safeguards", () => {
     const { rerender } = render(
       <StatusFooter
         stats={{ total: 1, ready: 0, running: 1, success: 0, failed: 0, progress: 10 }}
-        model="models/gemini-3.1-flash-image-preview"
+        model="nano-banana-2"
       />,
     );
 
@@ -1715,7 +1892,7 @@ describe("UI safeguards", () => {
     rerender(
       <StatusFooter
         stats={{ total: 1, ready: 0, running: 1, success: 0, failed: 0, progress: 60 }}
-        model="models/gemini-3.1-flash-image-preview"
+        model="nano-banana-2"
       />,
     );
     expect(screen.getByTestId("status-indicator").getAttribute("data-phase")).toBe("middle");
@@ -1723,7 +1900,7 @@ describe("UI safeguards", () => {
     rerender(
       <StatusFooter
         stats={{ total: 1, ready: 0, running: 1, success: 0, failed: 0, progress: 95 }}
-        model="models/gemini-3.1-flash-image-preview"
+        model="nano-banana-2"
       />,
     );
     expect(screen.getByTestId("status-indicator").getAttribute("data-phase")).toBe("ending");
@@ -1733,7 +1910,7 @@ describe("UI safeguards", () => {
     render(
       <StatusFooter
         stats={{ total: 1, ready: 0, running: 1, success: 0, failed: 0, progress: 60 }}
-        model="models/gemini-3.1-flash-image-preview"
+        model="nano-banana-2"
         phase="requesting"
       />,
     );
@@ -1751,17 +1928,65 @@ describe("UI safeguards", () => {
     render(
       <StatusFooter
         stats={{ total: 3, ready: 2, running: 0, success: 1, failed: 0, progress: 100 }}
-        model="models/gemini-2.5-flash-image"
+        model="nano-banana-2"
         message={hint}
       />,
     );
 
     const status = screen.getByRole("status");
-    const modelValue = screen.getByText("GEMINI-2.5-FLASH-IMAGE");
+    const modelValue = screen.getByText("NANO-BANANA-2");
     const hintText = screen.getByText(hint);
 
     expect(screen.queryByText("100%")).not.toBeInTheDocument();
     expect(status.childElementCount).toBe(1);
     expect(modelValue.parentElement).toContainElement(hintText);
+  });
+});
+
+describe("media settings persistence", () => {
+  it("removes the legacy token-bearing gateway key on startup", () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "iimage-gateway",
+      JSON.stringify({ baseUrl: "http://old:3000", token: "sk-legacy" }),
+    );
+
+    render(<HookHarness />);
+
+    expect(localStorage.getItem("iimage-gateway")).toBeNull();
+  });
+
+  it("persists non-sensitive settings but never the token", async () => {
+    localStorage.clear();
+
+    render(<HookHarness />);
+
+    await act(async () => {
+      latestApi.updateSettings({
+        baseUrl: "http://gw.example:3000",
+        token: "sk-secret",
+        imageModel: "gateway-model-a",
+      });
+    });
+
+    const stored = JSON.parse(localStorage.getItem("newapi-media-settings") ?? "{}");
+    expect(stored).toMatchObject({
+      baseUrl: "http://gw.example:3000",
+      imageModel: "gateway-model-a",
+    });
+    expect(localStorage.getItem("newapi-media-settings")).not.toContain("sk-secret");
+    // 令牌只在内存里可用
+    expect(latestApi.settings.token).toBe("sk-secret");
+  });
+
+  it("falls back to empty settings when stored settings are corrupted", () => {
+    localStorage.clear();
+    localStorage.setItem("newapi-media-settings", "{not-json");
+
+    render(<HookHarness />);
+
+    expect(latestApi.settings.baseUrl).toBe("");
+    expect(latestApi.settings.imageModel).toBe("");
+    expect(latestApi.settings.token).toBe("");
   });
 });

@@ -1,6 +1,7 @@
 # 本地开发测试数据
 node_modules/
 dist/
+/图片/
 *.log
 .git/
 .turbo/
@@ -11,6 +12,20 @@ dist/
 .venv-ocr/
 ocr_server/__pycache__/
 ocr_server/.paddlex-cache/
+
+# Codex process notes
+/task_plan.md
+/progress.md
+/findings.md
+/lessons.md
+doc/test/
+
+# Local credentials and browser captures must never enter a shared commit
+.env
+.env.*
+!.env.example
+/.playwright-mcp/
+/smoke-classify-gap.png
 
 # 本地 mock 数据（不提交）
 src/data/*.local.ts

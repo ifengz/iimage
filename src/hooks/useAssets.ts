@@ -9,10 +9,11 @@ import {
   createDevelopmentAssetFromFile,
   getRuntimeSeedAssets,
 } from "../data/mock";
+import { createMediaClient } from "newapi-media-client";
 import {
-  GoogleGenerativeAI,
-  type GenerateContentResponse,
-} from "@google/generative-ai";
+  loadMediaSettings,
+  saveMediaSettings,
+} from "newapi-media-client/config";
 
 const statusLabels: Record<AssetStatus, string> = {
   未填写: "Pending",
@@ -50,38 +51,62 @@ const clampParallelLimit = (value: number) => {
   return Math.max(1, Math.min(10, Math.floor(value)));
 };
 
-const inferMimeType = (assetName: string, blobType?: string) => {
-  if (blobType) return blobType;
+const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
+const MAX_REFERENCE_EDGE = 2048;
 
-  const extension = assetName.split(".").pop()?.toLowerCase();
-  const mimeByExtension: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    gif: "image/gif",
-    svg: "image/svg+xml",
-  };
+const blobToDataUri = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("参考图编码失败。"));
+    reader.readAsDataURL(blob);
+  });
 
-  return mimeByExtension[extension ?? ""] ?? "image/png";
-};
+const loadImageForResize = (url: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("参考图读取失败。"));
+    image.src = url;
+  });
 
-const extractResultImageUrl = (response: GenerateContentResponse) => {
-  const imagePart = response.candidates
-    ?.flatMap((candidate) => candidate.content.parts)
-    .find((part) => "inlineData" in part && part.inlineData?.data);
+// 先按长边/质量压缩；最终编码大小由 buildReferenceDataUri 统一校验。
+const compressBlobToDataUri = async (blob: Blob): Promise<string> => {
+  const objectUrl = URL.createObjectURL(blob);
+  let image: HTMLImageElement;
 
-  if (!imagePart || !("inlineData" in imagePart)) {
-    return null;
+  try {
+    image = await loadImageForResize(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
   }
 
-  const inlineData = imagePart.inlineData;
-  if (!inlineData?.data) {
-    return null;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    // 无 canvas 环境（测试/极端降级）：不压缩，但守住 2MB 上限
+    if (blob.size > MAX_REFERENCE_BYTES) {
+      throw new Error("参考图超过 2MB 且当前环境无法压缩。");
+    }
+    return blobToDataUri(blob);
   }
 
-  const mimeType = inlineData.mimeType || "image/png";
-  return `data:${mimeType};base64,${inlineData.data}`;
+  const scale = Math.min(
+    1,
+    MAX_REFERENCE_EDGE / Math.max(image.naturalWidth || 1, image.naturalHeight || 1),
+  );
+  canvas.width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
+  canvas.height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  let quality = 0.9;
+  let dataUri = canvas.toDataURL("image/jpeg", quality);
+  while (dataUri.length > MAX_REFERENCE_BYTES && quality > 0.5) {
+    quality -= 0.1;
+    dataUri = canvas.toDataURL("image/jpeg", quality);
+  }
+  return dataUri;
 };
 
 const buildPrompt = (asset: AssetItem) => {
@@ -242,6 +267,36 @@ const requestLocalOcr = async (file: File): Promise<{ blocks: OcrBlock[] }> => {
   };
 };
 
+// 标准尺寸映射留在业务侧（adapter 包不导出 snapSize）：按宽高比对数距离取最近档位
+const STANDARD_SIZES: Array<[number, number]> = [
+  [1024, 1024],
+  [1536, 1024],
+  [1024, 1536],
+];
+
+const snapSize = (width: number, height: number): string => {
+  const ratio = Math.log(width / height);
+  let best = STANDARD_SIZES[0];
+  let bestDistance = Infinity;
+  for (const size of STANDARD_SIZES) {
+    const distance = Math.abs(ratio - Math.log(size[0] / size[1]));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = size;
+    }
+  }
+  return `${best[0]}x${best[1]}`;
+};
+
+export interface MediaGatewaySettings {
+  baseUrl: string;
+  /** 仅内存保存（仅本地开发模式），刷新即失效，永不写入 localStorage */
+  token: string;
+  imageModel: string;
+  imageSize: string;
+  parallelLimit: number;
+}
+
 export const useAssets = () => {
   const initialAssets = getRuntimeSeedAssets({ isDev: import.meta.env.DEV });
   const [batchName, setBatchName] = useState("Untitled Batch");
@@ -257,10 +312,17 @@ export const useAssets = () => {
   );
   const [promptDraft, setPromptDraft] = useState("");
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
-  const [settings, setSettings] = useState({
-    apiKeys: "",
-    model: "models/gemini-3.1-flash-image-preview",
-    parallelLimit: 3,
+  const [settings, setSettings] = useState<MediaGatewaySettings>(() => {
+    // 旧版本把网关令牌持久化在 iimage-gateway 键里，按凭证红线清除
+    localStorage.removeItem("iimage-gateway");
+    const persisted = loadMediaSettings();
+    return {
+      baseUrl: persisted.baseUrl,
+      token: "",
+      imageModel: persisted.imageModel,
+      imageSize: persisted.imageSize,
+      parallelLimit: 3,
+    };
   });
   const [batchPhase, setBatchPhase] = useState<
     "idle" | "preparing" | "requesting" | "finishing"
@@ -270,19 +332,30 @@ export const useAssets = () => {
     remaining: 0,
   });
 
-  const updateSettings = (newSettings: {
-    apiKeys?: string;
-    model?: string;
-    parallelLimit?: number;
-  }) => {
-    setSettings((prev) => ({
-      ...prev,
-      ...newSettings,
-      parallelLimit:
-        newSettings.parallelLimit === undefined
-          ? prev.parallelLimit
-          : clampParallelLimit(newSettings.parallelLimit),
-    }));
+  const updateSettings = (newSettings: Partial<MediaGatewaySettings>) => {
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        ...newSettings,
+        parallelLimit:
+          newSettings.parallelLimit === undefined
+            ? prev.parallelLimit
+            : clampParallelLimit(newSettings.parallelLimit),
+      };
+      // 只持久化非敏感配置；令牌永不落盘。URL 非法时跳过持久化，
+      // 由连接测试和生图请求把真实错误暴露给用户
+      try {
+        saveMediaSettings({
+          baseUrl: next.baseUrl,
+          analysisModel: "",
+          imageModel: next.imageModel,
+          imageSize: next.imageSize,
+        });
+      } catch {
+        /* baseUrl 未通过 adapter 校验时不持久化 */
+      }
+      return next;
+    });
   };
 
   const assetsRef = useRef<AssetItem[]>(assets);
@@ -444,16 +517,21 @@ export const useAssets = () => {
     savedPromptsRef.current = savedPrompts;
   }, [savedPrompts]);
 
+  const revokeResultUrl = (asset: AssetItem) => {
+    if (asset.resultUrl?.startsWith("blob:")) URL.revokeObjectURL(asset.resultUrl);
+  };
+
+  const revokeAssetUrls = (asset: AssetItem) => {
+    if (asset.uploadPreviewUrl) URL.revokeObjectURL(asset.uploadPreviewUrl);
+    revokeResultUrl(asset);
+  };
+
   useEffect(() => {
     return () => {
       batchRunIdRef.current += 1;
       abortAllTrackedRequests();
       resetBatchPhases();
-      assetsRef.current.forEach((asset) => {
-        if (asset.uploadPreviewUrl) {
-          URL.revokeObjectURL(asset.uploadPreviewUrl);
-        }
-      });
+      assetsRef.current.forEach(revokeAssetUrls);
       activeBatchPendingIdsRef.current.clear();
     };
   }, []);
@@ -504,6 +582,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
         const nextRules = asset.rules.map((rule) =>
           rule.id === ruleId ? { ...rule, [key]: value } : rule,
         );
@@ -557,6 +636,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
 
         const nextRules = asset.rules.map((rule) =>
           rule.id === targetRuleId ? { ...rule, sourceText: nextText } : rule,
@@ -591,6 +671,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
         const next = {
           ...asset,
           notes: value,
@@ -612,6 +693,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
         const insertIndex = asset.rules.findIndex((rule) => rule.id === ruleId);
         const nextRule = createEmptyRule(asset.rules.length + 1);
         const nextRules = [...asset.rules];
@@ -641,6 +723,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
         const nextRules = asset.rules.length > 1
           ? asset.rules.filter((rule) => rule.id !== ruleId)
           : asset.rules.map((rule) => rule.id === ruleId ? { ...rule, sourceText: "", targetText: "" } : rule);
@@ -667,6 +750,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== selectedId) return asset;
+        revokeResultUrl(asset);
         return {
           ...asset,
           status: "未填写",
@@ -688,25 +772,19 @@ export const useAssets = () => {
     setBatchMessage(null);
   };
 
-  const urlToBase64 = async (
+  // 参考图 → data:URI；包含 base64 开销后的大小也必须 ≤2MB。
+  const buildReferenceDataUri = async (
     asset: AssetItem,
     signal?: AbortSignal,
-  ): Promise<{ data: string; mimeType: string }> => {
-    const url = asset.uploadPreviewUrl || asset.previewUrl;
-    const response = await fetch(url, { signal });
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = (reader.result as string).split(',')[1];
-        resolve({
-          data: base64String,
-          mimeType: inferMimeType(asset.name, blob.type),
-        });
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+  ): Promise<string> => {
+    const blob = asset.uploadFile ?? await (
+      await fetch(asset.uploadPreviewUrl || asset.previewUrl, { signal })
+    ).blob();
+    const dataUri = await compressBlobToDataUri(blob);
+    if (dataUri.length > MAX_REFERENCE_BYTES) {
+      throw new Error("参考图编码后仍超过 2MB，请缩小图片后重试。");
+    }
+    return dataUri;
   };
 
   const resetRunningAssetsToDraft = () => {
@@ -808,9 +886,28 @@ export const useAssets = () => {
       return;
     }
 
-    const keys = settings.apiKeys.split("\n").map(k => k.trim()).filter(Boolean);
-    if (keys.length === 0) {
-      setBatchMessage("Please enter at least one Gemini API Key in Settings.");
+    if (!settings.token.trim()) {
+      setBatchMessage("请先在系统设置里填写网关令牌。");
+      return;
+    }
+
+    if (!settings.baseUrl.trim() || !settings.imageModel.trim()) {
+      setBatchMessage("请先在系统设置里完成网关连接并选择生图模型。");
+      return;
+    }
+
+    // adapter 是传输协议、鉴权与响应校验的唯一 source of truth；
+    // 配置非法（Base URL/令牌）时其同步抛错直接进入失败提示
+    let client: ReturnType<typeof createMediaClient>;
+    try {
+      client = createMediaClient({
+        baseUrl: settings.baseUrl,
+        key: settings.token,
+        imageModel: settings.imageModel,
+        imageSize: settings.imageSize,
+      });
+    } catch (error) {
+      setBatchMessage(resolveMessage(error, "网关配置无效，请检查系统设置。"));
       return;
     }
 
@@ -845,7 +942,6 @@ export const useAssets = () => {
     let cursor = 0;
 
     const runNext = async (): Promise<void> => {
-      const assetIndex = cursor;
       const asset = readyItems[cursor++];
 
       if (!asset || batchRunIdRef.current !== runId) {
@@ -860,57 +956,70 @@ export const useAssets = () => {
         return;
       }
 
-      const apiKey = keys[assetIndex % keys.length];
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: settings.model });
       const controller = new AbortController();
       let leavePhase = enterBatchPhase("preparing");
 
       batchAbortControllersRef.current.set(asset.id, controller);
 
       try {
-        const image = await urlToBase64(liveAsset, controller.signal);
+        const referenceImage = await buildReferenceDataUri(liveAsset, controller.signal);
         leavePhase();
         leavePhase = enterBatchPhase("requesting");
         const prompt = savedPromptsRef.current[asset.id] ?? buildPrompt(liveAsset);
 
-        const result = await model.generateContent(
-          [
-            prompt,
-            {
-              inlineData: {
-                data: image.data,
-                mimeType: image.mimeType,
-              },
-            },
-          ],
-          { signal: controller.signal },
+        const image = await client.generateImage(prompt, {
+          model: settings.imageModel,
+          images: [referenceImage],
+          size: snapSize(liveAsset.width, liveAsset.height),
+          signal: controller.signal,
+        });
+
+        // G5：渠道链接普遍 24h 过期，拿到即下载转存为本地 blob URL；取消信号贯穿下载
+        const bytes = await client.download(image.url, {
+          signal: controller.signal,
+        });
+        if (bytes.byteLength === 0) {
+          throw new Error("网关返回的结果为空，请检查网关响应。");
+        }
+        const resultUrl = URL.createObjectURL(
+          new Blob([bytes as unknown as BlobPart], { type: "image/png" }),
         );
 
-        const response = await result.response;
-        const resultUrl = extractResultImageUrl(response);
-
         if (batchRunIdRef.current !== runId || controller.signal.aborted) {
+          URL.revokeObjectURL(resultUrl);
           return;
         }
 
-        if (!resultUrl) {
-          throw new Error("Gemini did not return an edited image.");
+        try {
+          const dimensions = await readImageDimensions(resultUrl);
+          if (dimensions.width <= 0 || dimensions.height <= 0) {
+            throw new Error("图片尺寸无效。");
+          }
+        } catch {
+          URL.revokeObjectURL(resultUrl);
+          throw new Error("网关返回的结果无法读取为图片，请检查网关响应。");
         }
+
+        // 解码期间也可能停止/清空；无效或取消的结果不能回填，也不能泄漏 Blob。
+        if (batchRunIdRef.current !== runId || controller.signal.aborted) {
+          URL.revokeObjectURL(resultUrl);
+          return;
+        }
+
         leavePhase();
         leavePhase = enterBatchPhase("finishing");
-        
+
         setAssets((prev) =>
-          prev.map((item) =>
-            item.id !== asset.id
-              ? item
-              : {
-                  ...item,
-                  status: "成功",
-                  resultUrl,
-                  errorMessage: undefined,
-                },
-          ),
+          prev.map((item) => {
+            if (item.id !== asset.id) return item;
+            revokeResultUrl(item);
+            return {
+              ...item,
+              status: "成功",
+              resultUrl,
+              errorMessage: undefined,
+            };
+          }),
         );
         settleBatchAsset(asset.id);
       } catch (error: any) {
@@ -925,7 +1034,7 @@ export const useAssets = () => {
               : {
                   ...item,
                   status: "失败",
-                  errorMessage: error.message || "API Request Failed.",
+                  errorMessage: error.message || "生成请求失败。",
                 },
           ),
         );
@@ -1045,9 +1154,7 @@ export const useAssets = () => {
     setAssets(prev => {
       const next = [...prev];
       if (index < next.length) {
-        if (next[index]?.uploadPreviewUrl) {
-          URL.revokeObjectURL(next[index].uploadPreviewUrl!);
-        }
+        if (next[index]) revokeAssetUrls(next[index]);
         next[index] = newAsset;
       } else {
         next.push(newAsset);
@@ -1067,7 +1174,7 @@ export const useAssets = () => {
     settleBatchAsset(id, "removed");
     setAssets(prev => {
       const asset = prev.find(a => a.id === id);
-      if (asset?.uploadPreviewUrl) URL.revokeObjectURL(asset.uploadPreviewUrl);
+      if (asset) revokeAssetUrls(asset);
       return prev.filter(a => a.id !== id);
     });
     setSavedPrompts(prev => {
@@ -1081,9 +1188,7 @@ export const useAssets = () => {
   const clearAllImages = () => {
     batchRunIdRef.current += 1;
     abortAllTrackedRequests();
-    assetsRef.current.forEach((asset) => {
-      if (asset.uploadPreviewUrl) URL.revokeObjectURL(asset.uploadPreviewUrl);
-    });
+    assetsRef.current.forEach(revokeAssetUrls);
     setAssets([]);
     setSelectedId("");
     setSelectedIds([]);
@@ -1136,6 +1241,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== assetToSave.id) return asset;
+        revokeResultUrl(asset);
         const next = {
           ...asset,
           resultUrl: undefined,
@@ -1156,6 +1262,7 @@ export const useAssets = () => {
     setAssets((prev) =>
       prev.map((asset) => {
         if (asset.id !== assetToSave.id) return asset;
+        revokeResultUrl(asset);
         const next = {
           ...asset,
           resultUrl: undefined,

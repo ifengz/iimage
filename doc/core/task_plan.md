@@ -1,5 +1,23 @@
 # Task Plan
 
+## 2026-08-28 本地启动
+
+### Goal
+
+将 `https://github.com/ifengz/iimage.git` 克隆到 `/Users/ifengz/CodingCase/iimage`，安装前端依赖，按仓库现有脚本启动前端与本地 OCR 服务，并验证可访问地址。
+
+### Success Criteria
+
+- 目标目录是 Git 仓库且工作树保持可说明的状态。
+- `npm install` 完成。
+- OCR 健康检查和前端首页可访问；若 OCR 运行环境缺失，明确暴露具体阻塞原因。
+
+### Result
+
+- 已完成克隆、依赖安装、OCR 环境准备与一键启动。
+- 当前访问地址：`http://localhost:5174/`。
+- OCR 健康检查：`http://127.0.0.1:8787/health` 返回 `{"status":"ok"}`。
+
 ## Goal
 
 调整 `iimage` 的 OCR 交互与回填顺序：上传图片后不再自动 OCR；A 区底部增加和 B/C 区同风格的 OCR 按钮栏，提供“开始 OCR”和“显示/隐藏 OCR”两个按钮；OCR 提示放在按钮栏左侧；OCR 框默认隐藏，避免挡住原图；点击 OCR 内容回填 `before` 时，从当前选中的 `before` 框开始，按顺序往下填，不再一直卡在第一个框。整个流程不允许使用 mock fallback，失败直接显示真实错误。
@@ -635,3 +653,45 @@ flowchart TD
 | `npm run test -- --run` | 待执行 |
 | `npm run ocr:check` | 待执行 |
 | `git add scripts ocr_server` | 待执行 |
+
+## 2026-09-05 接入 AIadapter 启动阶段
+
+### Goal
+
+调研将 iimage 接入 `/Users/ifengz/CodingCase/AIadapter/media-adapter` 的最小必要路径，并移除 iimage 现有官方直连实现；当前阶段只完成 OpenSpec propose，禁止修改业务代码、禁止修改 AIadapter。
+
+### Success Criteria
+
+- `lessons.md` 已完整读取。
+- `task_plan.md`、`progress.md`、`findings.md` 均位于 `doc/core/`，根目录无同名过程文件。
+- `.gitignore` 明确排除过程文件、`doc/test/` 和现有本地/mock 数据路径。
+- OpenSpec propose 可执行并产出规范；在 propose 完成前不进入 apply 或业务实现。
+
+### Current Phase
+
+Phase 0: OpenSpec propose / 等待明确 `Yes`
+
+### Scope Boundary
+
+- 允许：读取项目规则与过程文档，检查路径和忽略规则，记录 OpenSpec propose 结论。
+- 禁止：读取或修改业务实现代码，执行 `/opsx:apply`，修改 `/Users/ifengz/CodingCase/AIadapter`，创建分支或 worktree。
+
+### OpenSpec Entry
+
+项目内未发现 OpenSpec 配置目录或 shell/npm 命令定义；这不能用来判定 Codex slash 工作流不可用。下一步应在当前 Codex 会话中执行 `/opsx:propose <需求描述>`，提案产出后等待用户明确回复 `Yes`；未确认前禁止 `/opsx:apply`、移除直连实现或其他业务实现。
+
+## 2026-09-05 用户澄清后的接入边界
+
+### Current Status
+
+用户已完成适配层范围确认；目标源为 `/Users/ifengz/CodingCase/AIadapter/media-adapter`，并要求移除 iimage 现有官方直连实现。当前仍不得据此进入业务实现或执行 apply。
+
+### Confirmed Facts
+
+- iimage 当前已是浏览器直连 NewAPI 风格的 `/v1/images/generations`。
+- AIadapter HEAD 是 Portkey Gateway 1.15.2，需要 `x-portkey-provider` 与 `x-portkey-config`，且没有 `video` / `supported_endpoint_types`。
+- iimage 现有官方直连实现不属于保留范围，后续提案必须明确其移除边界；本阶段不读取、不修改该业务实现。
+
+### Next Action
+
+下一步仅执行 `/opsx:propose <需求描述>`；提案产出后等待用户明确回复 `Yes`，在此之前不执行 `/opsx:apply`，不修改业务代码，不修改 AIadapter。

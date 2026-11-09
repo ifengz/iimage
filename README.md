@@ -1,8 +1,11 @@
-# Gemini 批量改图 (iimage)
+# 批量改图 (iimage)
+
+> 当前是适配器接入的开发版本，可以独立安装、测试和构建；**不是生产发布版本**。
+> 浏览器直连及内存令牌模式仍只允许本地开发。生产服务端持钥、访问控制与真实网关端到端验收尚未完成。
 
 ## 项目说明
 
-`iimage` 是一个面向日常使用场景的 Gemini 批量改图工具。它把“上传图片、填写替换规则、补充说明、批量生成结果图”这几步合到一个页面里，尽量减少反复切图、手工改字、来回沟通和重复点按钮的时间。
+`iimage` 是一个面向日常使用场景的批量改图工具。它把“上传图片、填写替换规则、补充说明、批量生成结果图”这几步合到一个页面里，尽量减少反复切图、手工改字、来回沟通和重复点按钮的时间。
 
 这个项目不是为了做一套复杂难懂的专业系统，而是想把批量改图这件事做得更直接、更省事。对需要频繁修改海报、商品图、活动图、社媒图的人来说，它更像一个上手就能用的工作台。
 
@@ -22,13 +25,15 @@
 1. **进入文件夹**：
 
    ```bash
-   cd /Users/ifengz/Antigravity_Case/001_Daily_Work/iimage
+   cd iimage
    ```
-2. **安装依赖**：
+2. **安装依赖**（Node.js 22.12+、pnpm 12.4.1）：
 
    ```bash
-   npm install
+   pnpm install --frozen-lockfile
    ```
+   媒体适配包已经固定在 `vendor/`，无需本机另有 AIadapter 目录；来源和摘要见
+   [vendor/README.md](vendor/README.md)。锁文件与 pnpm 版本一起提交，安装时仅允许现有构建工具 esbuild 的安装脚本。
 3. **准备本地 OCR 服务环境（首次需要）**：
 
    ```bash
@@ -43,7 +48,7 @@
    - 一键拉起前后端（推荐）：
 
      ```bash
-     npm run dev:all
+     npm run dev
      ```
 
      这个脚本会先确认 OCR 服务是否已经可用；如果还没启动，它会先拉起 OCR 服务，等 `http://127.0.0.1:8787/health` 正常后，再启动前端。前端地址以终端输出为准，如果 `5173` 已被占用，Vite 会自动换到下一个可用端口。
@@ -53,10 +58,10 @@
      npm run ocr:server
      ```
 
-     另开一个终端再执行：
+     另开一个终端再执行（只起前端，不含 OCR）：
 
      ```bash
-     npm run dev
+     npm run dev:web
      ```
 5. **开始使用**：
    在浏览器访问终端输出的地址（通常为 [http://localhost:5173/](http://localhost:5173/)）。
@@ -65,7 +70,7 @@
 
 ## 常用功能与命令
 
-### 生产环境构建
+### 前端构建（不代表生产验收）
 
 如果您需要构建前端产物，请运行：
 
@@ -73,7 +78,7 @@
 npm run build
 ```
 
-打包后的文件将存放在 `dist` 目录下。您可以使用以下命令预览前端生产版本：
+打包后的文件将存放在 `dist` 目录下。您可以使用以下命令预览前端构建产物：
 
 ```bash
 npm run preview
@@ -85,6 +90,17 @@ npm run preview
 - 如果您把 `dist` 单独丢到普通静态站点里，OCR 接口 `/api/ocr` 不会自己出现。
 - 生产环境要想继续使用 OCR，仍然需要同源 OCR 接口，或者由反向代理把 `/api/*` 转发到 OCR 服务。
 
+提交前检查：
+
+```bash
+pnpm run typecheck
+pnpm run test:run
+pnpm run build
+pnpm run ocr:check
+```
+
+这些命令只证明本地类型、测试、构建和 OCR 文件语法通过，不证明 OCR 运行时或真实网关可用。
+
 ### 核心操作流程
 
 1. **上传图片**：点击 B区（中间面板）的 `+` 号或顶部的 `上传图片` 按钮。
@@ -93,9 +109,14 @@ npm run preview
 4. **点选原文**：先点 B区里的 `before` 输入框，再点 A区里的 OCR 框，原文会自动写回对应输入框。
 5. **填写目标内容**：在 `替换规则` 中输入目标内容，或在 `额外说明` 中填写详细需求。
 6. **保存设置**：点击 `保存`。状态将变为 **“就绪”**。
-7. **配置 API Key 与并行数**：点击顶部导航栏的设置图标，填入您的 **Google Gemini API Key**，并设置并行数。
+7. **配置网关与并行数**：点击顶部导航栏的设置图标，填入 **NewAPI 网关地址** 和 **网关令牌**，点“测试连接”拉取模型目录并选择 **生图模型**，再设置并行数。出图统一走 `newapi-media-client`（AIadapter/media-adapter 包），协议、鉴权、响应校验、模型目录和下载限制以该包为唯一 source of truth。
 8. **勾选要生成的图片**：在 B区缩略图左下角勾选这次要跑的图片。
 9. **开始批处理**：点击底部的 `开始生成` 按钮，等待进度条完成。
+
+本开发分支保留了现有的“未声明生图能力”警示分组，允许手动尝试未分类模型；
+不自动选择，也不据模型名称认定能力。这与早期提案的严格拦截合同不同，不能用于生产验收。
+生产迁移时必须重新确认模型准入合同及实际网关能力。参考图压缩后的完整 data URI 上限为 2MiB，
+仍超限会明确失败，不提交计费生成请求。
 
 ### 本地 OCR 服务
 
@@ -103,14 +124,15 @@ npm run preview
 
 - 健康检查：[http://127.0.0.1:8787/health](http://127.0.0.1:8787/health)
 - 识别接口：`POST http://127.0.0.1:8787/api/ocr`
-- 前端开发态会通过 [vite.config.ts](/Users/ifengz/Antigravity_Case/001_Daily_Work/iimage/vite.config.ts) 自动把 `/api/*` 转发到这个本地服务
+- 前端开发态会通过 [vite.config.ts](vite.config.ts) 自动把 `/api/*` 转发到这个本地服务
 
 常用命令：
 
 ```bash
 npm run ocr:check
 npm run ocr:server
-npm run dev:all
+npm run dev
+npm run dev:web
 ```
 
 如果 OCR 服务没启动，页面不会偷偷给假数据，而是直接显示真实报错。
@@ -123,4 +145,13 @@ npm run dev:all
 - **构建工具**: Vite 7
 - **语言**: TypeScript
 - **样式**: Vanilla CSS (基于变量的设计系统)
-- **AI SDK**: @google/generative-ai
+- **AI 链路**: NewAPI 网关，经 `newapi-media-client`（AIadapter/media-adapter）包统一接入
+
+### 凭证边界（重要）
+
+本项目当前按 **仅本地开发直连** 模式运行：
+
+- 网关令牌只保存在页面内存中，刷新即失效需重新填写，不写入 localStorage、URL 或日志。
+- 启动时会自动清除旧版本遗留在 `iimage-gateway` 键中的令牌。
+- 该模式禁止用于生产发布。若需上生产，必须改为服务端持钥（key 存服务端环境变量，
+  浏览器只提交 prompt/参考图并接收脱敏结果），并重新走 OpenSpec 凭证门槛。

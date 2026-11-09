@@ -46,4 +46,4 @@ else
 fi
 
 echo "启动前端..."
-npm run dev
+npm run dev:web

@@ -1,0 +1,3 @@
+# Only the existing bundler's platform-binary setup may run during installation.
+allowBuilds:
+  esbuild: true

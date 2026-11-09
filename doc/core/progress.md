@@ -199,3 +199,39 @@
 | 构建 | `npm run build` | 构建通过 | 构建通过 | 通过 |
 | Python 语法检查 | `npm run ocr:check` | 服务文件可编译 | 通过 | 通过 |
 | OpenSpec 归档 | `opsx archive` | archive 成功记录 | 已写入 `/Users/ifengz/.opsx/iimage/log.txt` | 通过 |
+# 2026-08-28 本地启动记录
+
+- 已确认 `/Users/ifengz/CodingCase/iimage` 初始为空目录。
+- 已从 `https://github.com/ifengz/iimage.git` 克隆仓库，当前 HEAD 为 `a557759`，分支为 `main`。
+- 已读取项目 `AGENTS.md`、`tasks/lessons.md`、`README.md`、`package.json` 和 `scripts/dev-all.sh`。
+- 已将根目录过程文件移入 `doc/core/`，并更新 `.gitignore` 以排除过程文件名。
+- 已执行 `npm install`，前端依赖安装完成。
+- 已创建 `.venv-ocr` 并安装 `ocr_server/requirements.txt`，PaddleOCR 依赖安装完成。
+- 已启动 `npm run dev:all`；OCR 服务监听 `127.0.0.1:8787`，Vite 因 `5173` 已占用改用 `5174`。
+- 已通过真实 HTTP 检查：`http://[::1]:5174/` 返回 200，`http://[::1]:5174/health` 返回 200。
+- 已执行 `npm run build`，TypeScript 检查与 Vite 构建均通过。
+
+## 2026-09-05 接入 AIadapter 启动检查
+
+- 已通过项目指令预检确认项目根目录为 `/Users/ifengz/CodingCase/iimage`，有效仓库规则为根目录 `AGENTS.md`。
+- 已完整读取 `tasks/lessons.md`（33 行）。
+- 已确认过程文件当前位于 `doc/core/task_plan.md`、`doc/core/progress.md`、`doc/core/findings.md`；根目录同名文件在工作树中为删除状态，未执行额外移动。
+- 已检查 `.gitignore`：过程文件名及 `src/data` 下本地/mock 数据已有规则，补充 `doc/test/`。
+- 当前阶段限定为 OpenSpec propose / 调研，未读取或修改业务实现，未访问或修改 `AIadapter`。
+- 已更正判断：shell 中没有 `opsx` 或 `openspec` 只说明项目没有对应 shell 命令，不能判定 Codex slash 工作流不可用。
+- 已完成只读核验：根目录三个过程文件均不存在，`doc/test/`、过程文件名和现有本地/mock 路径均被 `.gitignore` 命中；业务工作树状态未因本次检查扩散。
+
+## 2026-09-05 OpenSpec 只读调研
+
+- 项目内未发现 `.opsx/`、`.openspec/` 或 `openspec/` 配置目录。
+- `package.json` 的 scripts 仅定义前端、测试和 OCR 命令，没有 `opsx`/`openspec` 命令。
+- `AGENTS.md` 明确规定 propose/apply/archive 是 Codex slash 会话工作流；根目录 `OPSX_PROPOSAL*.md` 与 `FLOW.md` 是历史规范记录，可作为格式参考，不是命令实现。
+- 当前应在 Codex 会话中按需求执行 `/opsx:propose <需求描述>`；本阶段不执行 apply、不读取业务代码、不修改 AIadapter。
+
+## 2026-09-05 接入边界只读调查
+
+- 已确认 iimage 当前使用浏览器直连 NewAPI 风格 `/v1/images/generations`。
+- 已确认 AIadapter HEAD 为 Portkey Gateway 1.15.2：请求需要 `x-portkey-provider`、`x-portkey-config`，HEAD 不提供 `video` / `supported_endpoint_types`。
+- 本轮用户已澄清目标源为 `/Users/ifengz/CodingCase/AIadapter/media-adapter`，不再等待适配层指代确认。
+- 按用户澄清，iimage 现有官方直连实现属于后续待移除范围；本轮未读取或修改业务实现，也未修改 AIadapter。
+- 下一步为在当前 Codex 会话执行 `/opsx:propose <需求描述>`；提案产出后等待用户明确回复 `Yes`，此前不执行 `/opsx:apply`，不进入业务实现。

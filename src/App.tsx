@@ -98,7 +98,7 @@ export default function App() {
 
         <StatusFooter
           stats={stats}
-          model={settings.model}
+          model={settings.imageModel}
           message={batchMessage}
           phase={batchPhase}
         />

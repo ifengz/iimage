@@ -214,7 +214,7 @@ export const PreviewPanel = ({
               }}
             >
               <strong style={{ color: 'var(--text-secondary)' }}>还没有生成结果</strong>
-              <span style={{ fontSize: '0.8rem' }}>开始生成后，这里才会显示 Gemini 返回的图片。</span>
+              <span style={{ fontSize: '0.8rem' }}>开始生成后，这里才会显示模型返回的图片。</span>
             </div>
           ) : (
             <div

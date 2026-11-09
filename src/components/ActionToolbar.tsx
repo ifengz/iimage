@@ -1,3 +1,12 @@
+import { useState, useEffect } from "preact/hooks";
+import {
+  getModelChoices,
+  reconcileMediaSettings,
+  testConnection,
+  type MediaModel,
+} from "newapi-media-client/config";
+import type { MediaGatewaySettings } from "../hooks/useAssets";
+
 interface ActionToolbarProps {
   handleUpload: (files: FileList | null) => Promise<void> | void;
   startBatch: () => void;
@@ -5,22 +14,9 @@ interface ActionToolbarProps {
   downloadSelected: () => void;
   isRunning: boolean;
   canStartBatch: boolean;
-  settings: { apiKeys: string; model: string; parallelLimit: number };
-  updateSettings: (newSettings: {
-    apiKeys?: string;
-    model?: string;
-    parallelLimit?: number;
-  }) => void;
+  settings: MediaGatewaySettings;
+  updateSettings: (newSettings: Partial<MediaGatewaySettings>) => void;
 }
-
-import { useState, useEffect } from "preact/hooks";
-
-const modelOptions = [
-  { label: 'Gemini 3.1 Flash Image Preview', value: 'models/gemini-3.1-flash-image-preview' },
-  { label: 'Gemini 3 Pro Image Preview', value: 'models/gemini-3-pro-image-preview' },
-  { label: 'Gemini 2.5 Flash Image', value: 'models/gemini-2.5-flash-image' },
-  { label: 'Imagen 4.0 Generate-001', value: 'models/imagen-4.0-generate-001' },
-];
 
 export const ActionToolbar = ({
   handleUpload,
@@ -34,6 +30,10 @@ export const ActionToolbar = ({
 }: ActionToolbarProps) => {
   const [activeBtn, setActiveBtn] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [imageModels, setImageModels] = useState<MediaModel[]>([]);
+  const [unclassifiedModels, setUnclassifiedModels] = useState<MediaModel[]>([]);
 
   const trigger = (name: string, fn: () => void) => {
     setActiveBtn(name);
@@ -162,34 +162,72 @@ export const ActionToolbar = ({
               >✕</button>
             </div>
             <div class="panel-body" style={{ padding: 'var(--spacing-md)', overflow: 'visible' }}>
+              <div
+                role="note"
+                style={{
+                  marginBottom: 'var(--spacing-md)',
+                  padding: 'var(--spacing-sm)',
+                  fontSize: '0.78rem',
+                  color: 'var(--warning, #f59e0b)',
+                  border: '1px solid var(--warning, #f59e0b)',
+                  borderRadius: 'var(--radius-md, 6px)',
+                }}
+              >
+                ⚠️ 仅本地开发使用：网关令牌只保存在本次页面内存中，刷新后需重新填写，禁止用于生产环境。
+              </div>
+
               <div class="setting-row">
-                <label class="setting-label" htmlFor="settings-api-keys">API Keys (每行一个)</label>
-                <textarea 
-                  id="settings-api-keys"
-                  class="setting-input" 
-                  style={{ minHeight: '100px', resize: 'vertical' }}
-                  value={settings.apiKeys}
-                  onInput={(e) => updateSettings({ apiKeys: (e.target as HTMLTextAreaElement).value })}
-                  placeholder="Paste your API keys here..."
+                <label class="setting-label" htmlFor="settings-gateway-url">网关地址</label>
+                <input
+                  id="settings-gateway-url"
+                  class="setting-input"
+                  type="text"
+                  value={settings.baseUrl}
+                  onInput={(e) => updateSettings({ baseUrl: (e.target as HTMLInputElement).value })}
+                  placeholder="http://localhost:3000"
                 />
               </div>
 
               <div class="setting-row">
-                <label class="setting-label" htmlFor="settings-model">Gemini Model</label>
-                <select
-                  id="settings-model"
+                <label class="setting-label" htmlFor="settings-token">网关令牌</label>
+                <input
+                  id="settings-token"
                   class="setting-input"
-                  aria-label="Gemini Model"
-                  value={settings.model}
-                  onInput={(e) =>
-                    updateSettings({ model: (e.target as HTMLSelectElement).value })
-                  }
+                  type="password"
+                  value={settings.token}
+                  onInput={(e) => updateSettings({ token: (e.target as HTMLInputElement).value })}
+                  placeholder="sk-..."
+                />
+              </div>
+
+              <div class="setting-row">
+                <label class="setting-label" htmlFor="settings-image-model">生图模型</label>
+                <select
+                  id="settings-image-model"
+                  class="setting-input"
+                  value={settings.imageModel}
+                  onChange={(e) => updateSettings({ imageModel: (e.target as HTMLSelectElement).value })}
                 >
-                  {modelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+                  <option value="">（先测试连接获取模型目录）</option>
+                  {imageModels.length > 0 && (
+                    <optgroup label="已声明生图能力">
+                      {imageModels.map((model) => (
+                        <option key={model.id} value={model.id}>{model.id}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {unclassifiedModels.length > 0 && (
+                    <optgroup label="⚠ 未声明生图能力（网关未发布元数据，需自行确认）">
+                      {unclassifiedModels.map((model) => (
+                        <option key={model.id} value={model.id}>{model.id}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {settings.imageModel &&
+                    !imageModels.some((model) => model.id === settings.imageModel) &&
+                    !unclassifiedModels.some((model) => model.id === settings.imageModel) && (
+                      <option value={settings.imageModel}>{settings.imageModel}</option>
+                    )}
                 </select>
               </div>
 
@@ -215,8 +253,45 @@ export const ActionToolbar = ({
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--spacing-md)' }}>
-                <button 
-                  class="button button-primary" 
+                <button
+                  class="button"
+                  type="button"
+                  style={{ height: '36px', padding: '0 var(--spacing-xl)', marginRight: 'var(--spacing-sm)' }}
+                  disabled={isTesting}
+                  onClick={() => {
+                    setIsTesting(true);
+                    setTestResult(null);
+                    void testConnection({ baseUrl: settings.baseUrl, apiKey: settings.token })
+                      .then((result) => {
+                        setTestResult(result);
+                        if (result.ok && result.models) {
+                          const choices = getModelChoices(result.models);
+                          setImageModels(choices.image);
+                          setUnclassifiedModels(choices.unclassified);
+                          const reconciled = reconcileMediaSettings(
+                            {
+                              baseUrl: settings.baseUrl,
+                              analysisModel: "",
+                              imageModel: settings.imageModel,
+                              imageSize: settings.imageSize,
+                            },
+                            choices,
+                          );
+                          if (reconciled.imageModel !== settings.imageModel) {
+                            updateSettings({ imageModel: reconciled.imageModel });
+                          }
+                        } else {
+                          setImageModels([]);
+                          setUnclassifiedModels([]);
+                        }
+                      })
+                      .finally(() => setIsTesting(false));
+                  }}
+                >
+                  {isTesting ? '测试中…' : '测试连接'}
+                </button>
+                <button
+                  class="button button-primary"
                   type="button"
                   style={{ height: '36px', padding: '0 var(--spacing-xl)' }}
                   onClick={() => setIsModalOpen(false)}
@@ -224,6 +299,46 @@ export const ActionToolbar = ({
                   完成
                 </button>
               </div>
+
+              {testResult && (
+                <div
+                  role="status"
+                  style={{
+                    marginTop: 'var(--spacing-sm)',
+                    fontSize: '0.8rem',
+                    color: testResult.ok ? 'var(--success)' : 'var(--error)',
+                  }}
+                >
+                  {testResult.ok ? '✓ ' : '✗ '}{testResult.message}
+                </div>
+              )}
+
+              {testResult?.ok && imageModels.length === 0 && unclassifiedModels.length === 0 && (
+                <div
+                  role="alert"
+                  style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--error)' }}
+                >
+                  模型目录为空或没有可用模型。
+                </div>
+              )}
+
+              {settings.imageModel && unclassifiedModels.some((model) => model.id === settings.imageModel) && (
+                <div
+                  role="note"
+                  style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}
+                >
+                  当前模型未声明生图能力（网关未发布能力元数据）。若生图失败，请到网关后台确认该模型的可用端点。
+                </div>
+              )}
+
+              {unclassifiedModels.length > 0 && (
+                <div
+                  role="status"
+                  style={{ marginTop: 'var(--spacing-sm)', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}
+                >
+                  {unclassifiedModels.length} 个模型未声明生图能力，已放入下拉的警示分组，是否可用请自行确认。
+                </div>
+              )}
             </div>
           </div>
         </div>

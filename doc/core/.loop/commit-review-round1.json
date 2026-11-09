@@ -1,0 +1,166 @@
+{
+  "summary": {
+    "round": 1,
+    "attack_mode": "structural",
+    "context_sources": [
+      "user-provided: isolated development-checkpoint claim and bounded scope",
+      "self-researched: project AGENTS.md, tasks/lessons.md, README, proposals, dependency manifest, current diff and package exports"
+    ],
+    "context_digest": "Review of the initial uncommitted snapshot, not a production-release assessment. No gateway calls, credential validation, target-code edits or main-workspace dependency changes.",
+    "snapshot_phase": "PRE-FIX: observations began on main on 2026-09-21 Asia/Shanghai; root subsequently created newadaptor and began fixes. Confirmed statuses below describe that original snapshot, not the current post-fix state.",
+    "scope_change": "initial",
+    "depth": 1,
+    "in_scope": ["依赖与构建可移植性", "提交内容与敏感信息卫生", "媒体调用接线与文档合同自洽"],
+    "out_of_scope": ["生产部署", "外部付费网关请求", "UI重设计", "OCR算法"],
+    "budget_n": 8,
+    "attempts_used": 5,
+    "asr_at_n": 0.625,
+    "max_tokens": 12000,
+    "tokens_used": 11000,
+    "tokens_used_basis": "Conservative generation-budget estimate; not an API billing measurement.",
+    "unique_finding_count": 2,
+    "by_severity": {"critical": 0, "major": 2, "minor": 0},
+    "round_verdict": "broke",
+    "stop_reason": "plan_complete",
+    "carried_from_round": null,
+    "attempts": [
+      "Isolated dependency closure: full offline installs hit missing cache; minimized dependency-only fixture installed a dangling link and could not import, replayed twice.",
+      "Sanitized candidate-content scan: 17 unignored browser snapshots contain long credential-shaped values, replayed with cached and untracked candidates.",
+      "Model-admission source/document consistency: selectable unclassified group contradicts current proposal and FLOW narrative.",
+      "Media wiring: package exports match imports; generation receives reference images and signal; result download receives signal; cancelled run result is guarded. No additional proven break.",
+      "Small UI diff and patch hygiene: label/App settings changes are scoped and git diff --check passed. No additional proven break."
+    ]
+  },
+  "records": [
+    {
+      "id": "COMMIT-01",
+      "round": 1,
+      "target": {"type": "idea", "name": "Independent development checkpoint"},
+      "attack_class": "integration.local_dependency",
+      "surface_class": "integration",
+      "attack_scope": "依赖与构建可移植性",
+      "attack_kind": "structural",
+      "oracle": "unmet_assumption",
+      "claim": "A new developer can use this development checkpoint without an untracked sibling workspace.",
+      "not_strawman": true,
+      "critique_basis": "A shareable checkpoint must close its runtime dependency graph through committed artifacts or a reproducibly obtainable, versioned dependency.",
+      "invariant": "Installing the submitted repository must make newapi-media-client resolvable independently of a private sibling folder.",
+      "repro": {
+        "command": "cd /tmp/iimage-dependency.L5DNYt && node --input-type=module -e 'import(\"newapi-media-client\")'",
+        "steps": [
+          "Create an empty temporary directory whose parent has no AIadapter/media-adapter directory.",
+          "Create a package.json with only the exact newapi-media-client dependency value from package.json:16: file:../AIadapter/media-adapter.",
+          "Run npm install --offline --ignore-scripts with a temporary cache. Installation may report success because npm creates a dangling local link.",
+          "Run the recorded import from that directory. Compare with the same import from the main workspace."
+        ],
+        "minimized_input": {"dependencies": {"newapi-media-client": "file:../AIadapter/media-adapter"}},
+        "env": {"temporary_fixture": "/tmp/iimage-dependency.L5DNYt", "network": "offline"},
+        "replayed_ok": true,
+        "replays_passed": 2,
+        "replays_total": 2
+      },
+      "baseline": {"metric": "Main-workspace package import", "value": "module resolved", "observed_via": "node dynamic import"},
+      "observed": "Isolated import exits 1 with ERR_MODULE_NOT_FOUND. The declared file dependency points outside the repository and is not supplied by the commit.",
+      "expected": "The dependency resolves from the submitted checkout without relying on the author's existing sibling directory.",
+      "proven": true,
+      "non_tautology_check": "The same import succeeds in the main workspace; a committed package artifact or reproducible dependency would make the isolated import succeed too.",
+      "independence_attestation": {"derived_expected_from": "The user's independent, reproducible development-checkpoint acceptance criterion", "derived_independently": true},
+      "severity": {"level": "major"},
+      "priority": "P1 before a shareable checkpoint",
+      "regression_key": "commit.dependency.external-sibling",
+      "status": "confirmed",
+      "evidence": {"paths": ["package.json:16", "pnpm-lock.yaml:12"], "full_install_caveat": "Full offline-install failures were cache misses, not counted as proof of this finding."}
+    },
+    {
+      "id": "COMMIT-02",
+      "round": 1,
+      "target": {"type": "idea", "name": "Safe all-changes checkpoint"},
+      "attack_class": "info_disclosure.browser_snapshot",
+      "surface_class": "state",
+      "attack_scope": "提交内容与敏感信息卫生",
+      "attack_kind": "structural",
+      "oracle": "contradiction",
+      "claim": "Committing all current eligible files will not commit private browser-debug snapshots or credentials.",
+      "not_strawman": true,
+      "critique_basis": "Credential-bearing debug artifacts must stay outside the Git submission set even for a development branch.",
+      "invariant": "No private browser snapshot with credential-shaped plaintext may be eligible for an all-files commit.",
+      "repro": {
+        "command": "node --input-type=module -e 'import fs from \"node:fs\"; import cp from \"node:child_process\"; const f=\".playwright-mcp/page-2026-09-06T09-29-58-516Z.yml\"; const line=fs.readFileSync(f,\"utf8\").split(/\\r?\\n/)[60]; console.log(JSON.stringify({file:f,line:61,keyShapedValue:/sk-[A-Za-z0-9_-]{18,}/.test(line),eligibleForAdd:cp.execFileSync(\"/usr/bin/git\",[\"ls-files\",\"--others\",\"--exclude-standard\",f],{encoding:\"utf8\"}).trim()===f}));'",
+        "steps": ["Run the command from the repository root; it prints only the path, line number and booleans, never the matched value."],
+        "minimized_input": ".playwright-mcp/page-2026-09-06T09-29-58-516Z.yml:61",
+        "replayed_ok": true,
+        "replays_passed": 2,
+        "replays_total": 2
+      },
+      "baseline": {"metric": "Initial untracked candidates", "value": 64, "observed_via": "git ls-files --others --exclude-standard"},
+      "observed": {"keyShapedValue": true, "eligibleForAdd": true, "matching_snapshot_count": 17},
+      "expected": {"eligibleForAdd": false, "matching_snapshot_count_in_submission": 0},
+      "proven": true,
+      "non_tautology_check": "An ignore rule or explicit exclusion removes the actual artifact from the submission set; the probe independently checks both file content shape and Git eligibility.",
+      "independence_attestation": {"derived_expected_from": "The user's no-secrets/no-private-debug-snapshots submission criterion", "derived_independently": true},
+      "severity": {"level": "major"},
+      "priority": "P1 before staging all files",
+      "regression_key": "commit.hygiene.credential-browser-snapshots",
+      "status": "confirmed",
+      "evidence": {"paths": [".gitignore:15", ".playwright-mcp/page-2026-09-06T09-29-58-516Z.yml:61"], "credential_validity": "UNKNOWN; not tested and not required to prove submission-hygiene failure", "secret_values_recorded": false}
+    }
+  ],
+  "needs_judgment": [
+    {
+      "id": "COMMIT-03",
+      "reason": "unresolved_expected",
+      "note": "Current source and unqualified proposal/FLOW text differ. The authorized admission policy is not settled by this review; root will document the current development state without inventing historical authorization. Kept as needs_judgment, not a submission blocker.",
+      "round": 1,
+      "target": {"type": "idea", "name": "Self-consistent media contract"},
+      "attack_class": "integration.contract_mismatch",
+      "surface_class": "integration",
+      "attack_scope": "媒体调用接线与文档合同自洽",
+      "attack_kind": "structural",
+      "oracle": "contradiction",
+      "claim": "The checkpoint describes its current model-admission behavior consistently.",
+      "not_strawman": true,
+      "critique_basis": "A handoff must distinguish the active contract from historical or superseded policy; code and current contract cannot assert mutually exclusive model admission.",
+      "invariant": "Whether a model without image-generation metadata can be selected must have one stated current answer.",
+      "repro": {
+        "command": "sed -n '63,66p' OPSX_PROPOSAL_AIADAPTER.md; sed -n '219,230p' src/components/ActionToolbar.tsx",
+        "steps": [
+          "The proposal requires image-generation metadata and treats missing legal image candidates as an error.",
+          "ActionToolbar renders unclassifiedModels as enabled options and provides a warning, not rejection.",
+          "FLOW's latest smoke narrative still says such models are correctly rejected and UI smoke cannot proceed."
+        ],
+        "minimized_input": {"model": {"id": "unclassified-example"}, "locus": ["OPSX_PROPOSAL_AIADAPTER.md:63", "src/components/ActionToolbar.tsx:219"]},
+        "replayed_ok": true,
+        "replays_passed": 2,
+        "replays_total": 2
+      },
+      "baseline": {"metric": "Declared admission policy", "value": "Only explicit image-generation metadata", "observed_via": "OPSX_PROPOSAL_AIADAPTER.md:63-66"},
+      "observed": "Current source explicitly offers unclassified models, while the unqualified proposal and latest FLOW narrative describe strict rejection.",
+      "expected": "Documentation states the current behavior, with earlier strict-policy/smoke notes clearly marked historical if superseded.",
+      "proven": false,
+      "non_tautology_check": "Either active-document correction or a deliberate policy-aligned implementation removes the actual contradiction; no production-readiness assumption is involved.",
+      "independence_attestation": {"derived_expected_from": "The user's source/document consistency checkpoint criterion", "derived_independently": true},
+      "severity": {"level": "minor"},
+      "priority": "P2 handoff clarity; policy choice is not determined by this review",
+      "regression_key": "commit.docs.model-admission-contradiction",
+      "status": "needs_judgment",
+      "evidence": {"paths": ["OPSX_PROPOSAL_AIADAPTER.md:63", "src/components/ActionToolbar.tsx:219", "FLOW.md:252"], "requested_fix_scope": "Reconcile documents with the authorized current policy; do not silently tighten or weaken admission."}
+    },
+    {"id": "NJ-01", "reason": "unresolved_expected", "note": "Whether unclassified models were subsequently authorized is not established by the supplied scope. This review proves the documentation contradiction, not that strict rejection is the required fix."},
+    {"id": "NJ-02", "reason": "needs_instrumentation", "note": "Real authenticated gateway edit, result quality and OCR runtime were deliberately not exercised. Local-only browser credentials are an explicit development limitation, not a production-readiness finding."}
+  ],
+  "out_of_scope": [],
+  "fresh_reader": {
+    "status": "signed_pre_fix_findings_with_current_regression_caveat",
+    "maker": "commit_adversary",
+    "reviewer": "/root/commit_adversary/fresh_record_check",
+    "date": "2026-09-22",
+    "COMMIT-01": "Replayed original isolated fixture: dangling external-directory dependency produces ERR_MODULE_NOT_FOUND; main workspace import succeeds. New vendor packaging independently-installable closure is not covered by this sign-off.",
+    "COMMIT-02": "Signed historical hygiene issue; sanitized scan still sees 17 matching snapshots. Current eligibility is false, tracked snapshot count is zero, and .gitignore:26 now excludes the directory. Did not reconstruct the original directory to re-observe its old eligibility.",
+    "safety": "No credentials printed, no gateway requests, no target edits.",
+    "round_gate_caveat": "This signature does not make the missing non-vacuity self-test pass."
+  },
+  "verification": {
+    "record_validator": "PASS",
+    "non_vacuity_self_test": "UNKNOWN: the installed attacker skill lacks evals/run_all.mjs; invocation returned MODULE_NOT_FOUND. No substitute result was invented."
+  }
+}

@@ -31,3 +31,9 @@
 - 当 `tsc -b` 会顺手产出 `vite.config.js` 这类生成产物时，不能把它们和源码一起当成“正常文件”；必须收口成单一真相，不然后面很容易改串。
 - 当缩略图里有“前/后”这种视图切换时，不能只做成鼠标可点的 `div`；必须让它变成真正的按钮，键盘用户才不会被挡在门外。
 - 当 README 里的包名和 `package.json` 对不上时，不能当成文字问题看；它会直接把新接手的人带去装错依赖。
+
+## 2026-09-05
+
+- 不得用 shell 中不存在 `opsx`/`openspec` 命令来判定 Codex slash 工作流不可用；应检查项目内 OpenSpec 配置，并按会话工作流产出 propose。
+- 用户已明确指定适配层源为 `/Users/ifengz/CodingCase/AIadapter/media-adapter`；不得再把 iimage 当前官方直连实现当作保留基线。
+- iimage 现有官方直连实现属于后续提案中的待移除对象；在用户明确回复 `Yes` 前，只能完成 propose，禁止修改业务代码或 AIadapter。

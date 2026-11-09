@@ -319,7 +319,7 @@ export const EditPanel = ({
           <textarea 
             value={currentAsset?.notes || ""}
             onInput={(e) => updateNotes((e.target as HTMLTextAreaElement).value)}
-            placeholder={currentAsset ? "Special instructions for Gemini..." : "请先选择一张图片"}
+            placeholder={currentAsset ? "补充说明（可选）..." : "请先选择一张图片"}
             disabled={!currentAsset}
             style={{
               width: '100%',

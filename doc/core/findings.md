@@ -164,3 +164,39 @@
 | 用 file input 清空值来保证同图可重传 | 这是浏览器层面的根因修法，不是 UI 小技巧 |
 | 状态点给测试锚点 `data-thumb-status` | 回归测试能稳定盯住状态映射，不再靠脆弱选择器 |
 | README 同时补操作步骤和部署前提 | 一个解决“按钮没反应”的误会，一个解决“OCR 404”的误会 |
+# 2026-08-28 本地启动结论
+
+- 仓库提供 `npm run dev:all` 一键启动脚本：先检查/启动 `127.0.0.1:8787` OCR，再运行 Vite 前端。
+- 当前仓库没有 `node_modules`；需要先执行 `npm install`。
+- OCR 依赖 `.venv-ocr`，首次运行可能需要按 README 安装 `ocr_server/requirements.txt`。
+- 本机 `localhost` 解析到 IPv6 回环地址；本次 Vite 实际地址为 `http://localhost:5174/`，可用 `[::1]:5174` 直接验证。
+- `npm install` 会生成 `package-lock.json`，项目已有 `pnpm-lock.yaml`；本次已将临时生成的 npm 锁文件移出项目，避免引入额外变更。
+- 生产构建已通过，说明当前前端依赖和 TypeScript/Vite 配置可正常编译。
+
+## 2026-09-05 接入 AIadapter 启动检查
+
+- 启动文档位置符合约束：三个过程文件均在 `doc/core/`；根目录 `task_plan.md`、`progress.md`、`findings.md` 不存在，仅保留 Git 工作树既有删除记录。
+- `.gitignore` 原已按文件名排除 `task_plan.md`、`progress.md`、`findings.md`、`lessons.md`，并排除 `src/data/*.local.ts` 与 `src/data/mock-data/`；本次仅补 `doc/test/`，未增加宽泛 mock 匹配。
+- `tasks/lessons.md` 已完整读取；当前没有用户纠正需要追加 lesson。
+- 当前工作树存在既有业务修改和未跟踪文件（包括 `README.md`、`package.json`、`src/` 下若干文件及 `OPSX_PROPOSAL_V5.md`）；本次未触碰这些文件。
+- 已纠正先前错误结论：shell 中不存在 `opsx`/`openspec` 不能判定 Codex slash 工作流不可用；应按会话工作流执行 propose。
+
+## 2026-09-05 OpenSpec 只读调研
+
+- 项目内没有 `.opsx/`、`.openspec/` 或 `openspec/` 配置/目录。
+- `package.json` scripts 没有 OpenSpec 命令；这只表示仓库没有 shell/npm 入口，不影响 Codex slash 工作流判断。
+- `AGENTS.md` 是当前有效命令定义：先 `/opsx:propose <需求描述>`，等待用户明确确认，再允许 `/opsx:apply`，完成后 `/opsx:archive`。
+- `OPSX_PROPOSAL.md` 至 `OPSX_PROPOSAL_V5.md`、`FLOW.md` 和 ExecPlan 文件是历史提案/流程材料；其中当前未跟踪的 `OPSX_PROPOSAL_V5.md` 标题为 NewAPI 媒体适配层，不能直接替代本次 AIadapter 接入提案。
+- 本阶段没有业务实现或 AIadapter 变更；下一步仅能通过 Codex 会话发起 `/opsx:propose`，产出后等待用户确认。
+
+## 2026-09-05 接入边界只读调查
+
+- iimage 当前事实是浏览器直连 NewAPI 风格 `/v1/images/generations`。
+- AIadapter HEAD 当前事实是 Portkey Gateway 1.15.2，契约要求 `x-portkey-provider`、`x-portkey-config`，并且没有 `video` / `supported_endpoint_types`。
+- AIadapter 根部 `media-client.ts`、`media-config.ts`、`MEDIA-INTEGRATION.md` 属于未提交草案，与 HEAD 契约不同；本次未修改。
+
+## 2026-09-05 用户澄清后的接入边界
+
+- 目标源已明确为 `/Users/ifengz/CodingCase/AIadapter/media-adapter`。
+- iimage 现有官方直连实现不是保留基线，后续提案必须包含移除该实现；本轮不读取、不修改业务代码。
+- 下一步是执行 `/opsx:propose <需求描述>`；产出提案后必须等待用户明确回复 `Yes`，此前不得执行 `/opsx:apply`、移除实现或修改 AIadapter。

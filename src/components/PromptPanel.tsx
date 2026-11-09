@@ -33,14 +33,14 @@ export const PromptPanel = ({
     <div class="panel">
       <div class="panel-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-          <span class="panel-title">C区 · Gemini Prompt</span>
+          <span class="panel-title">C区 · 生成 Prompt</span>
         </div>
       </div>
       <div class="panel-body" style={sharedPanelBodyStyle}>
         <textarea
           value={promptDraft}
           onInput={(e) => setPromptDraft((e.target as HTMLTextAreaElement).value)}
-          placeholder="Gemini prompt will appear here..."
+          placeholder="Prompt will appear here..."
           style={{
             width: '100%',
             flex: 1,
