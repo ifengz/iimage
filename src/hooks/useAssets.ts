@@ -161,10 +161,11 @@ const deriveStatus = (asset: AssetItem, savedPrompt?: string): AssetStatus => {
 
 const isImagesEndpointMissing = (error: unknown) => {
   const status = (error as { status?: unknown } | null)?.status;
-  // 404：网关根本不提供 images 接口；5xx：网关到上游的图片接口失败（常见于只转聊天接口的中转站）
-  if (typeof status === "number" && (status === 404 || status >= 500)) return true;
+  // 400：该模型不在图片接口的白名单里；404：网关根本没有 images 接口；
+  // 5xx：网关到上游的图片接口失败（中转站常见）。以上都值得改走聊天接口再试。
+  if (typeof status === "number" && (status === 400 || status === 404 || status >= 500)) return true;
   const message = String((error as { message?: unknown } | null)?.message ?? "");
-  return /HTTP (404|5\d\d)/.test(message);
+  return /HTTP (400|404|5\d\d)/.test(message);
 };
 
 const buildInitialPrompts = (assets: AssetItem[]) =>
