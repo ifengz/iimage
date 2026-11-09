@@ -107,6 +107,7 @@ export const PreviewPanel = ({
   const failureIsMissingEndpoint = Boolean(currentAsset.errorMessage?.includes("404"));
   const displayUrl = previewMode === "after" ? currentAsset.resultUrl : currentAsset.previewUrl;
   const [imageFailed, setImageFailed] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
   const restoredForRef = useRef<string>("");
 
   useEffect(() => {
@@ -194,6 +195,17 @@ export const PreviewPanel = ({
       <div class="panel-header">
         <span class="panel-title">A区 · 预览 ({previewMode === 'before' ? 'Before' : 'After'})</span>
         <div class="preview-header-meta">
+          {currentAsset.resultUrl ? (
+            <button
+              type="button"
+              class="button button-ghost"
+              style={{ ...compactGhostActionButtonStyle, height: "24px", padding: "0 10px" }}
+              aria-pressed={compareMode}
+              onClick={() => setCompareMode((prev) => !prev)}
+            >
+              {compareMode ? "单图" : "对比"}
+            </button>
+          ) : null}
           <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
             {previewMode === "after" && currentAsset.resultWidth
               ? `${currentAsset.name} (${currentAsset.resultWidth} × ${currentAsset.resultHeight} / 原图 ${currentAsset.width} × ${currentAsset.height})`
@@ -218,7 +230,46 @@ export const PreviewPanel = ({
             padding: "var(--spacing-md)",
           }}
         >
-          {showAfterFailure ? (
+          {compareMode && currentAsset.resultUrl ? (
+            <div
+              class="preview-stage"
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                gap: "12px",
+                alignItems: "stretch",
+                justifyContent: "center",
+                minWidth: 0,
+                minHeight: 0,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                  原图 {currentAsset.width} × {currentAsset.height}
+                </span>
+                <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <img
+                    src={currentAsset.previewUrl}
+                    alt={`${currentAsset.name} 原图`}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+                  />
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                  结果 {currentAsset.resultWidth ?? "?"} × {currentAsset.resultHeight ?? "?"}
+                </span>
+                <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <img
+                    src={currentAsset.resultUrl}
+                    alt={`${currentAsset.name} 结果`}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : showAfterFailure ? (
             <div
               style={{
                 display: 'grid',
