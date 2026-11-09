@@ -285,6 +285,19 @@ const STANDARD_SIZES: Array<[number, number]> = [
   [1024, 1536],
 ];
 
+// 优先按原图比例出图：实测支持自定义尺寸的网关会照做，比例一致的画面才不会被重排
+const proportionalSize = (width: number, height: number): string => {
+  const baseWidth = 1024;
+  const scaled = Math.round((height / width) * baseWidth);
+  return `${baseWidth}x${Math.min(Math.max(scaled, 256), 4096)}`;
+};
+
+const isSizeUnsupported = (error: unknown) => {
+  const status = (error as { status?: unknown } | null)?.status;
+  const message = String((error as { message?: unknown } | null)?.message ?? "");
+  return status === 400 && /size/i.test(message);
+};
+
 const snapSize = (width: number, height: number): string => {
   const ratio = Math.log(width / height);
   let best = STANDARD_SIZES[0];
@@ -1023,13 +1036,33 @@ export const useAssets = () => {
         // 有些网关只开放聊天接口出图（Images API 直接 404），这时回退到聊天接口
         let imageUrl: string;
         try {
-          const image = await client.generateImage(prompt, {
-            model: settings.imageModel,
-            images: [referenceImage],
-            size: snapSize(liveAsset.width, liveAsset.height),
-            signal: controller.signal,
-          });
-          imageUrl = image.url;
+          let image: { url: string } | null = null;
+          let failure: unknown = null;
+          try {
+            image = await client.generateImage(prompt, {
+              model: settings.imageModel,
+              images: [referenceImage],
+              size: proportionalSize(liveAsset.width, liveAsset.height),
+              signal: controller.signal,
+            });
+          } catch (error) {
+            // 网关只认标准尺寸时，退回最接近的 1024/1536 档位再试一次
+            if (!isSizeUnsupported(error)) {
+              failure = error;
+            } else {
+              image = await client.generateImage(prompt, {
+                model: settings.imageModel,
+                images: [referenceImage],
+                size: snapSize(liveAsset.width, liveAsset.height),
+                signal: controller.signal,
+              });
+            }
+          }
+          if (image) {
+            imageUrl = image.url;
+          } else {
+            throw failure ?? new Error("网关没有返回图片。");
+          }
         } catch (error) {
           if (!isImagesEndpointMissing(error)) throw error;
           imageUrl = await generateImageWithChatCompletions({

@@ -455,7 +455,7 @@ describe("useAssets batch behavior", () => {
     expect(firstPrompt).toContain("Do not create a side-by-side comparison");
     expect(firstOpts).toMatchObject({
       model: "nano-banana-2",
-      size: "1536x1024",
+      size: "1024x683",
     });
     expect(firstOpts.images[0]).toMatch(/^data:/);
 
