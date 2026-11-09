@@ -12,6 +12,7 @@ import {
 import { createMediaClient } from "newapi-media-client";
 import { proxyGatewayUrl } from "../dev-gateway-proxy";
 import { generateImageWithChatCompletions } from "../chat-image-generator";
+import { resizeBlobToSize } from "../image-size";
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -1001,6 +1002,7 @@ export const useAssets = () => {
 
         // 有些网关只开放聊天接口出图（Images API 直接 404），这时回退到聊天接口
         let imageUrl: string;
+        let usedChatFallback = false;
         try {
           const image = await client.generateImage(prompt, {
             model: settings.imageModel,
@@ -1011,11 +1013,12 @@ export const useAssets = () => {
           imageUrl = image.url;
         } catch (error) {
           if (!isImagesEndpointMissing(error)) throw error;
+          usedChatFallback = true;
           imageUrl = await generateImageWithChatCompletions({
             baseUrl: proxyGatewayUrl(settings.baseUrl, false),
             key: settings.token,
             model: settings.imageModel,
-            prompt,
+            prompt: `${prompt}\n\n保持与原截图相同的版式、构图与画面比例，只在原位置修改文字，不要重新排版。`,
             images: [referenceImage],
             signal: controller.signal,
           });
@@ -1028,9 +1031,16 @@ export const useAssets = () => {
         if (bytes.byteLength === 0) {
           throw new Error("网关返回的结果为空，请检查网关响应。");
         }
-        const resultUrl = URL.createObjectURL(
-          new Blob([bytes as unknown as BlobPart], { type: "image/png" }),
-        );
+        let resultBlob = new Blob([bytes as unknown as BlobPart], { type: "image/png" });
+        if (usedChatFallback) {
+          // 聊天接口出图不能指定尺寸，统一缩放到原图宽高，保证前后对比一致
+          const fitted = await resizeBlobToSize(resultBlob, liveAsset.width, liveAsset.height);
+          if (fitted) {
+            resultBlob = fitted;
+            appendLog(`尺寸已对齐原图：${liveAsset.width}×${liveAsset.height}`);
+          }
+        }
+        const resultUrl = URL.createObjectURL(resultBlob);
 
         if (batchRunIdRef.current !== runId || controller.signal.aborted) {
           URL.revokeObjectURL(resultUrl);
