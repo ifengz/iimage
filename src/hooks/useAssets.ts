@@ -10,7 +10,6 @@ import {
   getRuntimeSeedAssets,
 } from "../data/mock";
 import { createMediaClient } from "newapi-media-client";
-import { proxyGatewayUrl } from "../dev-gateway-proxy";
 import { generateImageWithChatCompletions } from "../chat-image-generator";
 import { resizeBlobToSize } from "../image-size";
 import { loadToken, saveToken } from "../gateway-profiles";
@@ -970,7 +969,7 @@ export const useAssets = () => {
     let client: ReturnType<typeof createMediaClient>;
     try {
       client = createMediaClient({
-        baseUrl: proxyGatewayUrl(settings.baseUrl, false),
+        baseUrl: settings.baseUrl,
         key: settings.token,
         imageModel: settings.imageModel,
         imageSize: settings.imageSize,
@@ -1075,7 +1074,7 @@ export const useAssets = () => {
           if (!isImagesEndpointMissing(error)) throw error;
           usedEndpointLabel = "聊天接口（重画）";
           imageUrl = await generateImageWithChatCompletions({
-            baseUrl: proxyGatewayUrl(settings.baseUrl, false),
+            baseUrl: settings.baseUrl,
             key: settings.token,
             model: settings.imageModel,
             prompt: `${prompt}\n\n保持与原截图相同的版式、构图与画面比例，只在原位置修改文字，不要重新排版。`,
@@ -1085,7 +1084,7 @@ export const useAssets = () => {
         }
 
         // G5：渠道链接普遍 24h 过期，拿到即下载转存为本地 blob URL；取消信号贯穿下载
-        const bytes = await client.download(proxyGatewayUrl(imageUrl, true), {
+        const bytes = await client.download(imageUrl, {
           signal: controller.signal,
         });
         if (bytes.byteLength === 0) {

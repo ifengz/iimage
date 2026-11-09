@@ -2,7 +2,6 @@ import preact from "@preact/preset-vite";
 import { defineConfig } from "vitest/config";
 import type { Plugin } from "vite";
 
-import { GATEWAY_PROXY_TARGET } from "./src/gateway-target";
 
 const SKIP_REQUEST_HEADERS = new Set([
   "host",
@@ -88,11 +87,6 @@ export default defineConfig({
       "/health": {
         target: "http://127.0.0.1:8787",
         changeOrigin: true,
-      },
-      "/gateway": {
-        target: GATEWAY_PROXY_TARGET,
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/gateway/, ""),
       },
     },
   },

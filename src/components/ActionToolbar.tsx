@@ -15,7 +15,6 @@ import {
   type MediaModel,
 } from "newapi-media-client/config";
 import type { MediaGatewaySettings } from "../hooks/useAssets";
-import { proxyGatewayUrl } from "../dev-gateway-proxy";
 
 const classifyModels = (models: MediaModel[], hints: Record<string, string[]>) => {
   const enriched = models.map((model) =>
@@ -459,7 +458,7 @@ export const ActionToolbar = ({
                     setIsTesting(true);
                     setTestResult(null);
                     void testConnection({
-                        baseUrl: proxyGatewayUrl(settings.baseUrl, false),
+                        baseUrl: settings.baseUrl,
                         apiKey: settings.token,
                       })
                       .then(async (result) => {
