@@ -311,6 +311,7 @@ export const useAssets = () => {
   const [assets, setAssets] = useState<AssetItem[]>(() => initialAssets);
   const [selectedId, setSelectedId] = useState<string>(initialAssets[0]?.id ?? "");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
   const [ocrTargetRuleId, setOcrTargetRuleId] = useState<string>(
     initialAssets[0]?.rules[0]?.id ?? "",
   );
@@ -364,6 +365,21 @@ export const useAssets = () => {
       }
       return next;
     });
+  };
+
+  const selectedIdRef = useRef(selectedId);
+  const logsRef = useRef<string[]>([]);
+
+  const appendLog = (line: string) => {
+    const stamp = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    const entry = `[${stamp}] ${line}`;
+    logsRef.current = [...logsRef.current.slice(-199), entry];
+    setLogs(logsRef.current);
+  };
+
+  const clearLogs = () => {
+    logsRef.current = [];
+    setLogs([]);
   };
 
   const assetsRef = useRef<AssetItem[]>(assets);
@@ -516,6 +532,10 @@ export const useAssets = () => {
   useEffect(() => {
     assetsRef.current = assets;
   }, [assets]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     ocrTargetRuleIdRef.current = ocrTargetRuleId;
@@ -840,7 +860,9 @@ export const useAssets = () => {
               },
         ),
       );
+      appendLog(`OCR 完成：识别到 ${payload.blocks.length} 段文字`);
     } catch (error: any) {
+      appendLog(`OCR 失败：${error?.message || "OCR request failed."}`);
       setAssets((prev) =>
         prev.map((asset) =>
           asset.id !== assetId
@@ -930,6 +952,7 @@ export const useAssets = () => {
     }
 
     setBatchMessage(null);
+    appendLog(`开始生成：${readyItems.length} 张，模型 ${settings.imageModel}`);
     batchRunIdRef.current += 1;
     const runId = batchRunIdRef.current;
     const parallelLimit = Math.min(
@@ -1045,6 +1068,10 @@ export const useAssets = () => {
             };
           }),
         );
+        appendLog(`成功：${asset.name}`);
+        if (asset.id === selectedIdRef.current) {
+          setPreviewMode("after");
+        }
         settleBatchAsset(asset.id);
       } catch (error: any) {
         if (controller.signal.aborted || batchRunIdRef.current !== runId) {
@@ -1053,6 +1080,7 @@ export const useAssets = () => {
 
         const failureMessage = error.message || "生成请求失败。";
         batchFailures.push(failureMessage);
+        appendLog(`失败：${asset.name} → ${failureMessage}`);
         setAssets((prev) =>
           prev.map((item) =>
             item.id !== asset.id
@@ -1137,6 +1165,10 @@ export const useAssets = () => {
     const failedFiles = uploadResults.flatMap((result) =>
       result.ok ? [] : [{ fileName: result.fileName, message: result.message }],
     );
+
+    for (const failed of failedFiles) {
+      appendLog(`上传失败：${failed.fileName} → ${failed.message}`);
+    }
 
     if (newAssets[0]) {
       setAssets((prev) => [...prev, ...newAssets]);
@@ -1350,5 +1382,7 @@ export const useAssets = () => {
     updateSettings,
     batchPhase,
     canStartBatch,
+    logs,
+    clearLogs,
   };
 };

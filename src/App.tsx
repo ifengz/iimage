@@ -42,6 +42,8 @@ export default function App() {
     batchMessage,
     batchPhase,
     canStartBatch,
+    logs,
+    clearLogs,
   } = useAssets();
 
   const isRunning = stats.running > 0;
@@ -95,6 +97,24 @@ export default function App() {
           settings={settings}
           updateSettings={updateSettings}
         />
+
+        <details class="log-panel">
+          <summary class="log-summary">
+            <span>运行日志（{logs.length}）</span>
+            <button
+              type="button"
+              class="button button-ghost log-clear"
+              onClick={(event) => {
+                event.preventDefault();
+                clearLogs();
+              }}
+              disabled={logs.length === 0}
+            >
+              清空日志
+            </button>
+          </summary>
+          <pre class="log-body">{logs.length === 0 ? "还没有日志，上传、OCR、生成都会记在这里。" : logs.join("\n")}</pre>
+        </details>
 
         <StatusFooter
           stats={stats}

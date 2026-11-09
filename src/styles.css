@@ -544,3 +544,45 @@ body {
 /* Scrollbar Style */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+
+/* 运行日志：平时折叠，点开看上传/OCR/生成记录 */
+.log-panel {
+  width: min(100%, 980px);
+  margin: 0 auto 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.78rem;
+}
+
+.log-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text-muted);
+  list-style: none;
+}
+
+.log-summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-clear {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+}
+
+.log-body {
+  margin: 0;
+  max-height: 168px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-lighter);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
