@@ -970,6 +970,8 @@ export const useAssets = () => {
         key: settings.token,
         imageModel: settings.imageModel,
         imageSize: settings.imageSize,
+        // gpt-image 这类高质量的编辑接口常常 60 秒以上才返回，默认超时不够用
+        requestTimeoutMs: 180_000,
       });
     } catch (error) {
       setBatchMessage(resolveMessage(error, "网关配置无效，请检查系统设置。"));
