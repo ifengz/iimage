@@ -341,9 +341,13 @@ export const PreviewPanel = ({
             </div>
           )}
         </div>
-        {previewMode === "before" ? (
-          <div class="panel-actions-bar panel-actions-bar-between" aria-label="OCR controls">
-            <div class="panel-action-hint">{ocrActionHint}</div>
+        <div
+          class="panel-actions-bar panel-actions-bar-between"
+          aria-label="OCR controls"
+          aria-hidden={previewMode !== "before"}
+          style={previewMode === "before" ? undefined : { visibility: "hidden" }}
+        >
+          <div class="panel-action-hint">{ocrActionHint}</div>
             <div class="panel-actions-group">
               <button
                 type="button"
@@ -364,9 +368,8 @@ export const PreviewPanel = ({
               >
                 {currentAsset.ocrVisible ? "隐藏 OCR" : "显示 OCR"}
               </button>
-            </div>
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );
