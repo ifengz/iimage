@@ -1036,8 +1036,10 @@ export const useAssets = () => {
           // 聊天接口出图不能指定尺寸，统一缩放到原图宽高，保证前后对比一致
           const fitted = await resizeBlobToSize(resultBlob, liveAsset.width, liveAsset.height);
           if (fitted) {
-            resultBlob = fitted;
-            appendLog(`尺寸已对齐原图：${liveAsset.width}×${liveAsset.height}`);
+            resultBlob = fitted.blob;
+            appendLog(
+              `尺寸已对齐原图：${fitted.fromWidth}×${fitted.fromHeight} → ${liveAsset.width}×${liveAsset.height}`,
+            );
           }
         }
         const resultUrl = URL.createObjectURL(resultBlob);

@@ -3,11 +3,17 @@
  * 这里把结果缩放到原图宽高，保证前后对比与导出尺寸一致。
  * 尺寸已经一致时返回 null，调用方保持原始字节不动。
  */
+export interface ResizedImage {
+  blob: Blob;
+  fromWidth: number;
+  fromHeight: number;
+}
+
 export const resizeBlobToSize = async (
   blob: Blob,
   width: number,
   height: number,
-): Promise<Blob | null> => {
+): Promise<ResizedImage | null> => {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return null;
   }
@@ -29,9 +35,11 @@ export const resizeBlobToSize = async (
     context.imageSmoothingQuality = "high";
     context.drawImage(bitmap, 0, 0, width, height);
 
-    return await new Promise<Blob | null>((resolve) => {
+    const resized = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, "image/png");
     });
+    if (!resized) return null;
+    return { blob: resized, fromWidth: bitmap.width, fromHeight: bitmap.height };
   } finally {
     bitmap.close();
   }
