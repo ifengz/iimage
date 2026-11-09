@@ -344,11 +344,17 @@ export const PreviewPanel = ({
         <div
           class="panel-actions-bar panel-actions-bar-between"
           aria-label="OCR controls"
-          aria-hidden={previewMode !== "before"}
-          style={previewMode === "before" ? undefined : { visibility: "hidden" }}
         >
-          <div class="panel-action-hint">{ocrActionHint}</div>
-          <div class="panel-actions-group">
+          <div class="panel-action-hint">
+            {previewMode === "before"
+              ? ocrActionHint
+              : "这是模型重画的图，OCR 选字只在原图上用。"}
+          </div>
+          <div
+            class="panel-actions-group"
+            aria-hidden={previewMode !== "before"}
+            style={previewMode === "before" ? undefined : { visibility: "hidden" }}
+          >
             <button
               type="button"
               class="button button-primary"
